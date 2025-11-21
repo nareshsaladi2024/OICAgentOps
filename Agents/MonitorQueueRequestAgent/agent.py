@@ -12,6 +12,7 @@ import sys
 import requests
 import json
 import logging
+import uuid
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from pathlib import Path
@@ -47,157 +48,8 @@ except ImportError:
     logger.info("Using basic logging (utility.logging_config not available)")
 
 
-def format_structured_response(data: Dict[str, Any]) -> str:
-    """Format the MCP tool response as structured text."""
-    output = "=" * 80 + "\n"
-    output += "MONITOR QUEUE REQUEST - INTEGRATION INSTANCES\n"
-    output += "=" * 80 + "\n\n"
-
-    # Check if there's an error
-    if data.get("isError", False):
-        output += "STATUS: ERROR\n"
-        output += "-" * 80 + "\n"
-        
-        content = data.get("content", [])
-        for item in content:
-            if item.get("type") == "text":
-                output += f"ERROR MESSAGE: {item.get('text', 'Unknown error')}\n"
-        output += "\n"
-        return output
-
-    # Parse the JSON response from content
-    parsed_data = None
-    content = data.get("content", [])
-    for item in content:
-        if item.get("type") == "text":
-            try:
-                parsed_data = json.loads(item.get("text", "{}"))
-            except json.JSONDecodeError:
-                output += f"RESPONSE (Raw):\n{item.get('text', '')}\n\n"
-                return output
-
-    if not parsed_data:
-        output += "STATUS: NO DATA\n"
-        output += "-" * 80 + "\n"
-        output += "No data returned from the monitoring API.\n\n"
-        return output
-
-    # Format structured response
-    output += "STATUS: SUCCESS\n"
-    output += "-" * 80 + "\n\n"
-
-    # Summary Information
-    output += "SUMMARY:\n"
-    output += "-" * 80 + "\n"
-    if "totalRecords" in parsed_data:
-        output += f"Total Records: {parsed_data['totalRecords']}\n"
-    if "retrievedRecords" in parsed_data:
-        output += f"Retrieved Records: {parsed_data['retrievedRecords']}\n"
-    if "timeWindow" in parsed_data:
-        output += f"Time Window: {parsed_data['timeWindow']}\n"
-    if "hasMore" in parsed_data:
-        output += f"Has More: {'Yes' if parsed_data['hasMore'] else 'No'}\n"
-    output += "\n"
-
-    # Items/Instances
-    items = parsed_data.get("items", [])
-    if items and len(items) > 0:
-        output += "INTEGRATION INSTANCES:\n"
-        output += "-" * 80 + "\n"
-        
-        for index, instance in enumerate(items, 1):
-            output += f"\nInstance #{index}:\n"
-            output += "  " + "-" * 78 + "\n"
-            
-            # Instance ID
-            instance_id = instance.get("instance-id") or instance.get("instanceId")
-            if instance_id:
-                output += f"  Instance ID: {instance_id}\n"
-            
-            # Run ID
-            run_id = instance.get("run-id") or instance.get("runId")
-            if run_id:
-                output += f"  Run ID: {run_id}\n"
-            
-            # Integration Information
-            integration_name = instance.get("integration-name") or instance.get("integrationName")
-            if integration_name:
-                output += f"  Integration: {integration_name}\n"
-            
-            integration_id = instance.get("integration-id") or instance.get("integrationId")
-            if integration_id:
-                output += f"  Integration ID: {integration_id}\n"
-            
-            integration_version = instance.get("integration-version") or instance.get("integrationVersion")
-            if integration_version:
-                output += f"  Version: {integration_version}\n"
-            
-            # Status
-            if instance.get("status"):
-                output += f"  Status: {instance['status']}\n"
-            
-            # Dates
-            if instance.get("date"):
-                output += f"  Date: {instance['date']}\n"
-            
-            creation_date = instance.get("creation-date") or instance.get("creationDate")
-            if creation_date:
-                output += f"  Created: {creation_date}\n"
-            
-            last_tracked = instance.get("last-tracked-time") or instance.get("lastTrackedTime")
-            if last_tracked:
-                output += f"  Last Tracked: {last_tracked}\n"
-            
-            # Duration
-            if "duration" in instance:
-                duration_ms = instance["duration"]
-                duration_sec = duration_ms // 1000
-                duration_min = duration_sec // 60
-                output += f"  Duration: {duration_ms}ms ({duration_sec}s / {duration_min}m)\n"
-            
-            # Tracking Variables
-            pk_name = instance.get("pk-name") or instance.get("pkName")
-            if pk_name:
-                pk_value = instance.get("pk-value") or instance.get("pkValue") or "N/A"
-                output += f"  Primary Key: {pk_name} = {pk_value}\n"
-            
-            secondary_name = instance.get("secondary-tracking-name") or instance.get("secondaryTrackingName")
-            if secondary_name:
-                secondary_value = instance.get("secondary-tracking-value") or instance.get("secondaryTrackingValue") or "N/A"
-                output += f"  Secondary Key: {secondary_name} = {secondary_value}\n"
-            
-            tertiary_name = instance.get("tertiary-tracking-name") or instance.get("tertiaryTrackingName")
-            if tertiary_name:
-                tertiary_value = instance.get("tertiary-tracking-value") or instance.get("tertiaryTrackingValue") or "N/A"
-                output += f"  Tertiary Key: {tertiary_name} = {tertiary_value}\n"
-            
-            # Project
-            project_code = instance.get("project-code") or instance.get("projectCode")
-            if project_code:
-                output += f"  Project Code: {project_code}\n"
-            
-            # Error Information
-            has_faults = instance.get("has-recoverable-faults") or instance.get("hasRecoverableFaults")
-            if has_faults is not None:
-                output += f"  Has Recoverable Faults: {has_faults}\n"
-        
-        output += "\n"
-    else:
-        output += "INTEGRATION INSTANCES:\n"
-        output += "-" * 80 + "\n"
-        output += "No instances found matching the criteria.\n\n"
-
-    output += "=" * 80 + "\n"
-    output += "END OF REPORT\n"
-    output += "=" * 80 + "\n"
-
-    return output
-
-
 def call_mcp_monitoring_instances(
     q: str = "{timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}",
-    limit: int = 50,
-    offset: int = 0,
     orderBy: str = "lastupdateddate",
     fields: str = "runId",
     return_format: str = "summary",
@@ -207,101 +59,122 @@ def call_mcp_monitoring_instances(
     Call the MCP server's monitoringInstances tool to retrieve integration instances.
     
     This tool queries the OIC Monitor MCP server to get integration instances that are
-    currently IN_PROGRESS from the past hour.
-    
-    Note: This implementation uses HTTP requests. For full MCP protocol support,
-    install the MCP Python SDK: pip install mcp
+    currently IN_PROGRESS from the past hour. The MCP server handles pagination internally
+    starting with offset=0 and limit=50.
     
     Args:
         q: Filter query string. Default: {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
-        limit: Maximum number of items to return (default: 50)
-        offset: Starting point for pagination (default: 0)
         orderBy: Sort order (default: 'lastupdateddate')
         fields: Field selection (default: 'runId')
         return_format: Response format (default: 'summary')
         mcp_server_url: URL of the MCP server (optional, uses MCP_SERVER_URL env var)
     
     Returns:
-        Structured text response with integration instances information
+        JSON string with integration instances information (raw response from MCP server)
     """
     if not mcp_server_url:
         mcp_server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:3000")
     
-    # Try to use MCP Python SDK if available
+    # Use streaming HTTP transport endpoint
+    stream_endpoint = f"{mcp_server_url}/stream"
+    
+    # MCP protocol message format for calling a tool
+    request_id = str(uuid.uuid4())
+    
+    mcp_message = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "tools/call",
+        "params": {
+            "name": "monitoringInstances",
+            "arguments": {
+                "q": q,
+                "orderBy": orderBy,
+                "fields": fields,
+                "return": return_format
+            }
+        }
+    }
+    
     try:
-        from mcp import Client
-        from mcp.client.sse import sse_client
-        import asyncio
+        # Use streaming HTTP POST request
+        response = requests.post(
+            stream_endpoint,
+            json=mcp_message,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream, application/json"
+            },
+            stream=True,
+            timeout=60
+        )
         
-        async def call_mcp_async():
-            async with sse_client(f"{mcp_server_url}/sse") as (read, write):
-                async with Client(read, write) as client:
-                    await client.initialize()
-                    result = await client.call_tool(
-                        "monitoringInstances",
-                        arguments={
-                            "q": q,
-                            "limit": limit,
-                            "offset": offset,
-                            "orderBy": orderBy,
-                            "fields": fields,
-                            "return": return_format
-                        }
-                    )
-                    return result
+        response.raise_for_status()
         
-        result = asyncio.run(call_mcp_async())
-        return format_structured_response(result)
+        # Parse streaming response
+        # For MCP protocol, responses may come as SSE or JSON
+        content_type = response.headers.get("Content-Type", "")
         
-    except ImportError:
-        # Fallback to HTTP if MCP SDK not available
-        # Note: This requires the MCP server to expose a REST API wrapper
-        # For production, use the MCP Python SDK
-        logger = logging.getLogger("MonitorQueueRequestAgent")
-        logger.warning("MCP SDK not available, using HTTP fallback. Install with: pip install mcp")
-        
-        # HTTP fallback - assumes REST wrapper endpoint exists
-        tool_endpoint = f"{mcp_server_url}/api/tools/monitoringInstances"
-        
-        try:
-            response = requests.post(
-                tool_endpoint,
-                json={
-                    "arguments": {
-                        "q": q,
-                        "limit": limit,
-                        "offset": offset,
-                        "orderBy": orderBy,
-                        "fields": fields,
-                        "return": return_format
-                    }
-                },
-                headers={"Content-Type": "application/json"},
-                timeout=30
-            )
+        if "text/event-stream" in content_type or "application/json" in content_type:
+            # Try to parse as JSON first
+            try:
+                result = response.json()
+                # Extract content from MCP response structure
+                if isinstance(result, dict):
+                    if "result" in result:
+                        content = result["result"].get("content", [])
+                        for item in content:
+                            if item.get("type") == "text":
+                                text_content = item.get("text", "{}")
+                                try:
+                                    json.loads(text_content)
+                                    return text_content
+                                except json.JSONDecodeError:
+                                    return json.dumps({"raw": text_content})
+                    elif "content" in result:
+                        for item in result["content"]:
+                            if item.get("type") == "text":
+                                text_content = item.get("text", "{}")
+                                try:
+                                    json.loads(text_content)
+                                    return text_content
+                                except json.JSONDecodeError:
+                                    return json.dumps({"raw": text_content})
+                return json.dumps(result, indent=2)
+            except ValueError:
+                # If not JSON, read as text (SSE format)
+                text_response = response.text
+                # Try to extract JSON from SSE format
+                lines = text_response.split('\n')
+                for line in lines:
+                    if line.startswith('data: '):
+                        try:
+                            data = json.loads(line[6:])  # Remove 'data: ' prefix
+                            if "result" in data:
+                                content = data["result"].get("content", [])
+                                for item in content:
+                                    if item.get("type") == "text":
+                                        return item.get("text", "{}")
+                            return json.dumps(data, indent=2)
+                        except (json.JSONDecodeError, KeyError):
+                            continue
+                return json.dumps({"raw": text_response})
+        else:
+            # Fallback: treat as plain text
+            return json.dumps({"raw": response.text})
             
-            response.raise_for_status()
-            result = response.json()
-            return format_structured_response(result)
-            
-        except requests.exceptions.ConnectionError:
-            error_response = {
-                "content": [{
-                    "type": "text",
-                    "text": f"Cannot connect to OIC Monitor MCP server at {mcp_server_url}. Make sure the server is running and MCP SDK is installed (pip install mcp)."
-                }],
-                "isError": True
-            }
-            return format_structured_response(error_response)
-        except Exception as e:
-            error_response = {
-                "content": [{
-                    "type": "text",
-                    "text": f"Error calling MCP server: {str(e)}. For full MCP support, install: pip install mcp"
-                }],
-                "isError": True
-            }
-            return format_structured_response(error_response)
+    except requests.exceptions.ConnectionError:
+        error_response = {
+            "isError": True,
+            "error": f"Cannot connect to OIC Monitor MCP server at {mcp_server_url}. Make sure the server is running."
+        }
+        return json.dumps(error_response, indent=2)
+    except Exception as e:
+        error_response = {
+            "isError": True,
+            "error": f"Error calling MCP server: {str(e)}"
+        }
+        return json.dumps(error_response, indent=2)
 
 
 def check_mcp_server_health(mcp_server_url: Optional[str] = None) -> Dict[str, Any]:
@@ -353,40 +226,38 @@ AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-2.5-flash-lite")
 root_agent = Agent(
     name="MonitorQueueRequestAgent",
     model=AGENT_MODEL,
-    description="An AI agent that monitors integration instances in the queue by retrieving IN_PROGRESS instances from Oracle Integration Cloud. Specializes in querying the OIC Monitor MCP server to get real-time status of integration instances that are currently being processed.",
+    description="OIC monitor queue requests agent that returns pending request count in queue along with details.",
     instruction="""
-    You are a MonitorQueueRequestAgent that specializes in monitoring integration instances in the queue from Oracle Integration Cloud.
+    You are an OIC monitor queue requests agent that returns pending request count in queue along with details.
     
-    The OIC Monitor MCP server provides:
-    - Integration instances that are currently IN_PROGRESS
-    - Instance details including status, tracking variables, and execution information
-    - Real-time monitoring of integration queue status
+    When users ask for any requests pending in queue before processing:
     
-    Your capabilities include:
-    1. Retrieving IN_PROGRESS integration instances from the past hour
-    2. Filtering by integration style (appdriven/scheduled)
-    3. Getting detailed instance information including:
-       - Instance IDs and Run IDs
-       - Integration names and versions
-       - Status and execution dates
-       - Tracking variables (primary, secondary, tertiary)
-       - Duration and performance metrics
-    4. Providing formatted reports of queue status
+    1. Call the call_mcp_monitoring_instances tool to query for OIC activity stream instances. The MCP server automatically handles pagination internally (starting with offset=0 and limit=50) and returns all matching instances.
     
-    When users ask about queue status or monitoring:
-    1. Use the call_mcp_monitoring_instances tool to query the OIC Monitor MCP server
-    2. By default, query for IN_PROGRESS instances from the past hour
-    3. Use the query: {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
-    4. Present the results in a clear, structured format
-    5. Include summary information (total records, time window)
-    6. List all instances with their key details
+    2. Use the following parameters in the request:
+       {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
+    
+    3. Filter the response to match instances with:
+       - status: "IN_PROGRESS"
+       - mepType: "ASYNC_ONE_WAY"
+       - dataFetchTime - creationDate > 15 minutes (date format: 2025-11-21T04:33:10.496+0000 GMT)
+    
+    4. Return details in structured HTML format that is readable:
+       - Total count of matching instances
+       - HTML table with the following columns:
+         * creationDate (converted to MST timezone)
+         * integration name
+         * instanceId
+         * tracking variable (name-value pairs, shortened to 200 characters)
+    
+    6. Format the HTML table with proper styling for readability (use table tags with headers, borders, and appropriate spacing).
     
     If the OIC Monitor MCP server is not available:
     1. Use the check_mcp_server_health tool to diagnose the issue
     2. Provide helpful guidance on how to start the server
     3. Suggest alternative approaches if possible
     
-    Always be helpful, clear, and concise. Format the response as structured text for easy reading.
+    Always present the results in clear, structured HTML format for easy reading and analysis.
     """,
     tools=[call_mcp_monitoring_instances, check_mcp_server_health]
 )

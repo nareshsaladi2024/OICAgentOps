@@ -1,12 +1,14 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import axios from "axios";
 import { z } from "zod";
 import express from "express";
+import { randomUUID } from "node:crypto";
 
 import cors from "cors";
-import { CONFIG } from "./config.js";
+import { CONFIG, getConfigForEnvironment } from "./config.js";
 import { TokenManager } from "./tokenManager.js";
 
 // Interface for OIC Response
@@ -76,30 +78,29 @@ Example: {timewindow:'1h', status:'FAILED', code:'ERROR', version:'01.00.0000'}`
 const monitoringInstancesSchema = {
     type: "object",
     properties: {
-        ...commonListSchema,
-        fields: { 
-            type: "string", 
-            description: "Limit query results to specific fields. Valid values: 'runId' (returns only runId), 'id' (returns only id), 'all' (returns all fields). Use 'runId' or 'id' for faster responses.",
-            enum: ["runId", "id", "all"],
-            default: "runId"
+        duration: {
+            type: "string",
+            description: "Time window duration for retrieving instances. Required. Enum values: '1h', '6h', '1d', '2d', '3d', 'RETENTIONPERIOD'",
+            enum: ["1h", "6h", "1d", "2d", "3d", "RETENTIONPERIOD"]
+        },
+        status: {
+            type: "string",
+            description: "Status filter for integration instances. Required. Enum values: 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ABORTED'",
+            enum: ["IN_PROGRESS", "COMPLETED", "FAILED", "ABORTED"]
+        },
+        environment: {
+            type: "string",
+            description: "OIC environment to query. Required. Enum values: 'dev', 'qa3', 'prod1', 'prod3'",
+            enum: ["dev", "qa3", "prod1", "prod3"]
         },
         groupBy: { 
             type: "string", 
-            description: "Groups results by integration name. Valid value: 'integration'",
+            description: "Groups results by integration name. Optional. Valid value: 'integration'",
             enum: ["integration"],
             default: ""
-        },
-        return: {
-            type: "string",
-            description: `Controls the response data format. Valid values:
-- 'metadataminimal': Fast response with metadata only (instanceId, integrationId, integrationVersion, status). No integration/project names.
-- 'metadata': Metadata including integration and project names if available.
-- 'minimal': Minimal information for faster response. Integration/project names may be default values.
-- 'summary': Default response format. Contains complete instance data without non-primary tracking variables.`,
-            enum: ["metadataminimal", "metadata", "minimal", "summary"],
-            default: "summary"
         }
     },
+    required: ["duration", "status", "environment"]
 };
 
 const monitoringInstanceDetailsSchema = {
@@ -225,15 +226,24 @@ const monitoringLogsSchema = {
 
 class OicMonitorServer {
     private server: Server;
-    private tokenManager: TokenManager;
+    private tokenManagers: Map<string, TokenManager>;
     private app: express.Application;
 
     constructor() {
-        this.tokenManager = new TokenManager();
+        // Use a map to store token managers per environment
+        this.tokenManagers = new Map();
         
-        // Clear any existing token file on server startup
+        // Initialize token managers for each environment
+        const environments = ['dev', 'qa3', 'prod1', 'prod3'];
+        environments.forEach(env => {
+            this.tokenManagers.set(env, new TokenManager());
+        });
+        
+        // Clear any existing token files on server startup
         console.log("🔄 Clearing any existing token cache on server startup...");
-        this.tokenManager.clearToken(false); // Show message on startup
+        this.tokenManagers.forEach((tokenManager) => {
+            tokenManager.clearToken(false); // Show message on startup
+        });
         
         this.server = new Server(
             {
@@ -255,18 +265,21 @@ class OicMonitorServer {
         this.server.onerror = (error) => console.error("[MCP Error]", error);
     }
 
-    private async getAccessToken(forceRefresh: boolean = false): Promise<string> {
+    private async getAccessToken(envConfig: any, forceRefresh: boolean = false, environment?: string): Promise<string> {
+        const env = environment || 'dev';
+        const tokenManager = this.tokenManagers.get(env) || this.tokenManagers.get('dev')!;
+        
         // Check for cached token first (unless force refresh is requested)
         if (!forceRefresh) {
-            const cachedToken = this.tokenManager.getToken();
+            const cachedToken = tokenManager.getToken();
             if (cachedToken) {
-                const remainingTime = this.tokenManager.getTokenRemainingTime();
+                const remainingTime = tokenManager.getTokenRemainingTime();
                 if (remainingTime !== null) {
                     const minutes = Math.floor(remainingTime / 60);
                     const seconds = remainingTime % 60;
-                    console.log(`✓ Using cached access token (${minutes}m ${seconds}s remaining until refresh)`);
+                    console.log(`✓ Using cached access token for ${env} (${minutes}m ${seconds}s remaining until refresh)`);
                 } else {
-                    console.log("✓ Using cached access token");
+                    console.log(`✓ Using cached access token for ${env}`);
                 }
                 return cachedToken;
             }
@@ -276,16 +289,16 @@ class OicMonitorServer {
         try {
             const params = new URLSearchParams();
             params.append('grant_type', 'client_credentials');
-            params.append('scope', CONFIG.scope);
+            params.append('scope', envConfig.scope);
 
-            if (!CONFIG.clientId || !CONFIG.clientSecret || !CONFIG.tokenUrl) {
-                throw new Error("OIC authentication credentials not configured. Please set OIC_CLIENT_ID, OIC_CLIENT_SECRET, and OIC_TOKEN_URL environment variables.");
+            if (!envConfig.clientId || !envConfig.clientSecret || !envConfig.tokenUrl) {
+                throw new Error(`OIC authentication credentials not configured for environment ${env}. Please set OIC_CLIENT_ID, OIC_CLIENT_SECRET, and OIC_TOKEN_URL in .env.${env} file.`);
             }
 
-            console.log("🔄 Fetching new access token from OIC authentication server...");
-            const auth = Buffer.from(`${CONFIG.clientId}:${CONFIG.clientSecret}`).toString('base64');
+            console.log(`🔄 Fetching new access token from OIC authentication server for ${env}...`);
+            const auth = Buffer.from(`${envConfig.clientId}:${envConfig.clientSecret}`).toString('base64');
 
-            const response = await axios.post(CONFIG.tokenUrl, params, {
+            const response = await axios.post(envConfig.tokenUrl, params, {
                 headers: {
                     'Authorization': `Basic ${auth}`,
                     'Content-Type': 'application/x-www-form-urlencoded'
@@ -296,12 +309,12 @@ class OicMonitorServer {
             // Use API's expires_in value or default to 3600 seconds (1 hour)
             const expiresIn = response.data.expires_in || 3600;
 
-            console.log(`💾 Caching access token for ${expiresIn} seconds (${Math.round(expiresIn / 60)} minutes)`);
-            this.tokenManager.saveToken(accessToken, expiresIn);
+            console.log(`💾 Caching access token for ${env} for ${expiresIn} seconds (${Math.round(expiresIn / 60)} minutes)`);
+            tokenManager.saveToken(accessToken, expiresIn);
 
             return accessToken;
         } catch (error: any) {
-            console.error("Failed to get access token:", error);
+            console.error(`Failed to get access token for ${env}:`, error);
             if (error.response) {
                 throw new Error(`Authentication failed: ${error.response.status} ${error.response.statusText} - ${JSON.stringify(error.response.data)}`);
             }
@@ -314,7 +327,7 @@ class OicMonitorServer {
             tools: [
                 { 
                     name: "monitoringInstances", 
-                    description: `Retrieve information about integration instances for the past hour (default) ordered by last updated time. Supports advanced filtering, pagination, and field selection. You can perform multi-word value searches using businessIDValue, primaryValue, secondaryValue, and tertiaryValue attributes. Supports filtering by status, time window, integration code, version, duration, dates, tracking variables, and more. Reference: https://docs.oracle.com/en/cloud/paas/application-integration/rest-api/op-ic-api-integration-v1-monitoring-instances-get.html`, 
+                    description: "OIC Factory API to retrieve monitor instances for a given duration, status, environment", 
                     inputSchema: monitoringInstancesSchema 
                 },
                 { 
@@ -381,92 +394,150 @@ class OicMonitorServer {
         }));
 
         this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-            const token = await this.getAccessToken();
             const { name, arguments: args } = request.params;
             const params = args as any || {};
-
-            // Add required integrationInstance parameter to all calls
-            params.integrationInstance = CONFIG.integrationInstance;
 
             try {
                 let endpoint = "";
                 let results: any;
                 let id = "";
+                let envConfig = CONFIG;
+                let token = "";
 
                 switch (name) {
                     case "monitoringInstances":
-                        endpoint = "/instances";
-                        if (!params.q && !params.limit && !params.offset) {
-                            params.q = "{timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}";
-                            params.orderBy = 'lastupdateddate';
-                            params.fields = 'runId';
+                        // Validate required parameters
+                        if (!params.environment) {
+                            throw new Error("Environment parameter is required. Valid values: 'dev', 'qa3', 'prod1', 'prod3'");
                         }
-                        results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
+                        if (!params.duration) {
+                            throw new Error("Duration parameter is required. Valid values: '1h', '6h', '1d', '2d', '3d', 'RETENTIONPERIOD'");
+                        }
+                        if (!params.status) {
+                            throw new Error("Status parameter is required. Valid values: 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ABORTED'");
+                        }
+                        
+                        const environment = params.environment;
+                        envConfig = getConfigForEnvironment(environment);
+                        
+                        // Get access token for the specified environment
+                        token = await this.getAccessToken(envConfig, false, environment);
+                        
+                        endpoint = "/instances";
+                        
+                        // Set fixed values as per requirements
+                        params.fields = 'all'; // Set to 'all' (detail) before API call
+                        params.orderBy = 'lastupdateddate'; // Set to lastupdateddate
+                        params.limit = 50; // Set to 50 on API call
+                        params.offset = 0; // Set to 0 on API call
+                        
+                        // Build q parameter from duration and status (both are required)
+                        const duration = params.duration;
+                        const status = params.status;
+                        params.q = `{timewindow:'${duration}', status:'${status}', integration-style:'appdriven', includePurged:'yes'}`;
+                        
+                        // Remove duration, status, environment from params (they're now in q)
+                        delete params.duration;
+                        delete params.status;
+                        delete params.environment;
+                        
+                        // Add required integrationInstance parameter from environment-specific config
+                        // Note: integrationInstance is NOT a tool parameter - it's automatically
+                        // read from the environment config (e.g., OIC_INTEGRATION_INSTANCE_DEV)
+                        // based on the 'environment' parameter
+                        params.integrationInstance = envConfig.integrationInstance;
+                        
+                        results = await this.fetchWithPagination(`${envConfig.apiBaseUrl}${endpoint}`, token, params);
                         break;
 
                     case "monitoringInstanceDetails":
+                        // Use default config for other tools (or could add environment param later)
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         id = params.id;
                         delete params.id; // Remove ID from params as it's in URL
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/instances/${id}`, token, params);
                         break;
 
                     case "monitoringIntegrations":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         endpoint = "/integrations";
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
                         break;
 
                     case "monitoringIntegrationDetails":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         id = params.id;
                         delete params.id;
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/integrations/${id}`, token, params);
                         break;
 
                     case "monitoringAgentGroups":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         endpoint = "/agentgroups";
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchSingle(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
                         break;
 
                     case "monitoringAgentGroupDetails":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         id = params.id;
                         delete params.id;
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/agentgroups/${id}`, token, params);
                         break;
 
                     case "monitoringAgentsInGroup":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         id = params.id;
                         delete params.id;
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/agentgroups/${id}/agents`, token, params);
                         break;
 
                     case "monitoringAuditRecords":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         endpoint = "/auditRecords";
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
                         break;
 
                     case "monitoringErrorRecoveryJobs":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         endpoint = "/errorRecoveryJobs";
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
                         break;
 
                     case "monitoringErroredInstances":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         endpoint = "/erroredInstances";
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
                         break;
 
                     case "monitoringScheduledRuns":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         endpoint = "/scheduledruns";
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
                         break;
 
                     case "monitoringActivityStream":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         id = params.id;
                         delete params.id;
+                        params.integrationInstance = CONFIG.integrationInstance;
                         results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/instances/${id}/activitystream`, token, params);
                         break;
 
                     case "monitoringLogs":
+                        token = await this.getAccessToken(CONFIG, false, 'dev');
                         id = params.id;
                         delete params.id;
+                        params.integrationInstance = CONFIG.integrationInstance;
                         // Logs might return binary or text, handling as text for now
                         try {
                             const logResponse = await axios.get(`${CONFIG.apiBaseUrl}/logs/${id}`, {
@@ -479,8 +550,10 @@ class OicMonitorServer {
                             // If we get a 401, refresh token and retry
                             if (error.response?.status === 401) {
                                 console.log("Received 401, refreshing token and retrying...");
-                                this.tokenManager.clearToken();
-                                const newToken = await this.getAccessToken(true);
+                                const env = 'dev'; // Default environment for other tools
+                                const tokenManager = this.tokenManagers.get(env) || this.tokenManagers.get('dev')!;
+                                tokenManager.clearToken();
+                                const newToken = await this.getAccessToken(CONFIG, true, 'dev');
                                 const logResponse = await axios.get(`${CONFIG.apiBaseUrl}/logs/${id}`, {
                                     headers: { 'Authorization': `Bearer ${newToken}` },
                                     params: params,
@@ -553,8 +626,11 @@ class OicMonitorServer {
             // If we get a 401 and haven't retried yet, refresh token and retry
             if (error.response?.status === 401 && retryOn401) {
                 console.log("Received 401, refreshing token and retrying...");
-                this.tokenManager.clearToken();
-                const newToken = await this.getAccessToken(true);
+                // Note: This assumes default config, may need to pass envConfig for proper environment handling
+                const env = 'dev';
+                const tokenManager = this.tokenManagers.get(env) || this.tokenManagers.get('dev')!;
+                tokenManager.clearToken();
+                const newToken = await this.getAccessToken(CONFIG, true, 'dev');
                 return this.fetchSingle(url, newToken, params, false);
             }
             throw error;
@@ -602,14 +678,17 @@ class OicMonitorServer {
                     break;
                 }
             } catch (error: any) {
-                // If we get a 401 and haven't retried yet, refresh token and retry
-                if (error.response?.status === 401 && retryOn401) {
-                    console.log("Received 401, refreshing token and retrying...");
-                    this.tokenManager.clearToken();
-                    currentToken = await this.getAccessToken(true);
-                    // Retry the same request with new token
-                    continue;
-                }
+            // If we get a 401 and haven't retried yet, refresh token and retry
+            if (error.response?.status === 401 && retryOn401) {
+                console.log("Received 401, refreshing token and retrying...");
+                // Note: This assumes default config, may need to pass envConfig for proper environment handling
+                const env = 'dev';
+                const tokenManager = this.tokenManagers.get(env) || this.tokenManagers.get('dev')!;
+                tokenManager.clearToken();
+                currentToken = await this.getAccessToken(CONFIG, true, 'dev');
+                // Retry the same request with new token
+                continue;
+            }
                 throw error;
             }
         }
@@ -622,7 +701,8 @@ class OicMonitorServer {
     }
 
     async run() {
-        let transport: SSEServerTransport;
+        let sseTransport: SSEServerTransport;
+        let streamableHttpTransport: StreamableHTTPServerTransport;
 
         // Health check endpoint for Cloud Run and Docker
         this.app.get("/health", (req, res) => {
@@ -639,8 +719,26 @@ class OicMonitorServer {
             res.json({
                 service: "OIC Monitor MCP Server",
                 version: "1.0.0",
+                transports: {
+                    sse: {
+                        description: "Server-Sent Events transport (unidirectional, requires separate POST endpoint)",
+                        endpoints: {
+                            connect: "GET /sse",
+                            messages: "POST /messages"
+                        }
+                    },
+                    streamableHttp: {
+                        description: "Streamable HTTP transport (bidirectional, single endpoint)",
+                        endpoints: {
+                            connect: "GET /stream",
+                            messages: "POST /stream",
+                            delete: "DELETE /stream"
+                        }
+                    }
+                },
                 endpoints: {
                     sse: "/sse",
+                    stream: "/stream",
                     health: "/health",
                     messages: "/messages"
                 },
@@ -662,26 +760,76 @@ class OicMonitorServer {
             });
         });
 
-        // SSE endpoint for MCP protocol
+        // ============================================
+        // SSE Transport (Legacy/Original)
+        // ============================================
+        // GET /sse - Establish SSE connection
         this.app.get("/sse", async (req, res) => {
-            transport = new SSEServerTransport("/messages", res);
-            await this.server.connect(transport);
+            sseTransport = new SSEServerTransport("/messages", res);
+            await this.server.connect(sseTransport);
         });
 
-        // Messages endpoint for MCP protocol
+        // POST /messages - Client-to-server messages for SSE transport
         this.app.post("/messages", async (req, res) => {
-            if (transport) {
-                await transport.handlePostMessage(req, res);
+            if (sseTransport) {
+                await sseTransport.handlePostMessage(req, res);
             } else {
-                res.status(404).send("Session not found");
+                res.status(404).send("SSE session not found. Connect to /sse first.");
             }
+        });
+
+        // ============================================
+        // Streamable HTTP Transport (New)
+        // ============================================
+        // Create Streamable HTTP transport (stateful mode with session management)
+        streamableHttpTransport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => {
+                // Generate a secure session ID
+                return randomUUID();
+            },
+            enableJsonResponse: false, // Use SSE streaming by default
+            onsessioninitialized: (sessionId: string) => {
+                console.log(`[StreamableHTTP] Session initialized: ${sessionId}`);
+            },
+            onsessionclosed: (sessionId: string) => {
+                console.log(`[StreamableHTTP] Session closed: ${sessionId}`);
+            }
+        });
+
+        // Connect server to Streamable HTTP transport
+        // Note: connect() will automatically start the transport, so we don't call start() explicitly
+        await this.server.connect(streamableHttpTransport);
+
+        // Handle all HTTP methods for Streamable HTTP transport
+        // GET /stream - Establish SSE stream (for server-to-client messages)
+        // POST /stream - Send client-to-server messages
+        // DELETE /stream - Close session
+        this.app.all("/stream", async (req, res) => {
+            // Parse request body if it's a POST request
+            let parsedBody = undefined;
+            if (req.method === 'POST' && req.body) {
+                parsedBody = req.body;
+            }
+
+            await streamableHttpTransport.handleRequest(req, res, parsedBody);
         });
 
         const port = process.env.PORT || 3000;
         const server = this.app.listen(port, () => {
             console.log(`OIC Monitor MCP Server running on port ${port}`);
-            console.log(`SSE Endpoint: http://localhost:${port}/sse`);
-            console.log(`Health Check: http://localhost:${port}/health`);
+            console.log(``);
+            console.log(`Transport Endpoints:`);
+            console.log(`  SSE Transport:`);
+            console.log(`    Connect: GET  http://localhost:${port}/sse`);
+            console.log(`    Messages: POST http://localhost:${port}/messages`);
+            console.log(`  Streamable HTTP Transport:`);
+            console.log(`    Connect: GET  http://localhost:${port}/stream`);
+            console.log(`    Messages: POST http://localhost:${port}/stream`);
+            console.log(`    Close: DELETE http://localhost:${port}/stream`);
+            console.log(``);
+            console.log(`Other Endpoints:`);
+            console.log(`  Health: GET http://localhost:${port}/health`);
+            console.log(`  Info: GET http://localhost:${port}/`);
         });
 
         // Setup graceful shutdown handlers to clear token on server stop
@@ -694,7 +842,9 @@ class OicMonitorServer {
             
             console.log(`\n${signal} received. Shutting down gracefully...`);
             console.log("🔄 Clearing token cache on server shutdown...");
-            this.tokenManager.clearToken(true); // Silent if no file exists (expected after startup deletion)
+            this.tokenManagers.forEach((tokenManager) => {
+                tokenManager.clearToken(true); // Silent if no file exists (expected after startup deletion)
+            });
             
             server.close(() => {
                 console.log("Server closed.");

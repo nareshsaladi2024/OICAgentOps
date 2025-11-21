@@ -19,15 +19,59 @@ if (result.error) {
     console.log(`✓ Loaded .env file from: ${envPath}`);
 }
 
-export const CONFIG = {
-    clientId: process.env.OIC_CLIENT_ID || "",
-    clientSecret: process.env.OIC_CLIENT_SECRET || "",
-    scope: process.env.OIC_SCOPE || "",
-    tokenUrl: process.env.OIC_TOKEN_URL || "",
-    apiBaseUrl: process.env.OIC_API_BASE_URL || "",
-    integrationInstance: process.env.OIC_INTEGRATION_INSTANCE || ""
-};
+// Valid environments
+const validEnvironments = ['dev', 'qa3', 'prod1', 'prod3'];
 
-if (!CONFIG.clientId || !CONFIG.clientSecret) {
-    console.warn("Warning: OIC_CLIENT_ID or OIC_CLIENT_SECRET not set in environment variables.");
+// Helper function to get environment-specific variable name
+function getEnvVarName(baseName: string, env: string): string {
+    return `${baseName}_${env.toUpperCase()}`;
 }
+
+// Cache for environment-specific configs
+const configCache: Map<string, any> = new Map();
+
+// Function to get config for a specific environment
+// Reads from process.env with environment suffix (e.g., OIC_CLIENT_ID_DEV, OIC_CLIENT_ID_QA3)
+// Environment must be provided as a parameter - it's not read from ENVIRONMENT env var
+export function getConfigForEnvironment(env: string) {
+    if (!validEnvironments.includes(env)) {
+        throw new Error(`Invalid environment '${env}'. Valid values: ${validEnvironments.join(', ')}. Environment must be provided as a query parameter.`);
+    }
+
+    // Check cache first
+    if (configCache.has(env)) {
+        return configCache.get(env);
+    }
+
+    // Build config from environment-specific process.env variables
+    // Variables should be named like: OIC_CLIENT_ID_DEV, OIC_CLIENT_SECRET_QA3, etc.
+    const envConfig = {
+        clientId: process.env[getEnvVarName('OIC_CLIENT_ID', env)] || "",
+        clientSecret: process.env[getEnvVarName('OIC_CLIENT_SECRET', env)] || "",
+        scope: process.env[getEnvVarName('OIC_SCOPE', env)] || "",
+        tokenUrl: process.env[getEnvVarName('OIC_TOKEN_URL', env)] || "",
+        apiBaseUrl: process.env[getEnvVarName('OIC_API_BASE_URL', env)] || "",
+        integrationInstance: process.env[getEnvVarName('OIC_INTEGRATION_INSTANCE', env)] || ""
+    };
+
+    // Cache the config
+    configCache.set(env, envConfig);
+    
+    if (!envConfig.clientId || !envConfig.clientSecret) {
+        console.warn(`Warning: OIC_CLIENT_ID_${env.toUpperCase()} or OIC_CLIENT_SECRET_${env.toUpperCase()} not set in environment variables.`);
+    }
+    
+    return envConfig;
+}
+
+// Default config - will be set when first tool call is made with an environment parameter
+// For backward compatibility with other tools that don't use environment parameter,
+// we'll use 'dev' as fallback, but monitoringInstances tool requires environment parameter
+export const CONFIG = {
+    clientId: process.env[getEnvVarName('OIC_CLIENT_ID', 'dev')] || "",
+    clientSecret: process.env[getEnvVarName('OIC_CLIENT_SECRET', 'dev')] || "",
+    scope: process.env[getEnvVarName('OIC_SCOPE', 'dev')] || "",
+    tokenUrl: process.env[getEnvVarName('OIC_TOKEN_URL', 'dev')] || "",
+    apiBaseUrl: process.env[getEnvVarName('OIC_API_BASE_URL', 'dev')] || "",
+    integrationInstance: process.env[getEnvVarName('OIC_INTEGRATION_INSTANCE', 'dev')] || ""
+};

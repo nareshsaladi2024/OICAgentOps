@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+**/dist/
+build/
+**/build/
+
+# Environment variables and sensitive data
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+
+# Token files
+.oic_mcp_token.json
+**/.oic_mcp_token.json
+
+# Logs
+*.log
+logs/
+**/*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+

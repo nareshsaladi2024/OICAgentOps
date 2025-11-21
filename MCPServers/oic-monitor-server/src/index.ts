@@ -7,8 +7,10 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 
 import cors from "cors";
-import { CONFIG, getConfigForEnvironment } from "./config.js";
+import { CONFIG } from "./config.js";
 import { TokenManager } from "./tokenManager.js";
+import { toolDefinitions, getToolByName } from "./tools/index.js";
+import { ToolContext } from "./tools/types.js";
 import * as Schemas from "./schemas.js";
 import { OicResponse } from "./types.js";
 
@@ -112,455 +114,38 @@ class OicMonitorServer {
 
     private setupHandlers() {
         this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-            tools: [
-                { 
-                    name: "monitoringInstances", 
-                    description: "OIC Factory API to retrieve monitor instances for a given duration, status, environment", 
-                    inputSchema: Schemas.monitoringInstancesSchema 
-                },
-                { 
-                    name: "monitoringInstanceDetails", 
-                    description: "Retrieve detailed information about a specific integration instance including status, tracking variables, audit trails, activity streams, and execution details.", 
-                    inputSchema: Schemas.monitoringInstanceDetailsSchema 
-                },
-                { 
-                    name: "monitoringIntegrations", 
-                    description: "Retrieve a list of integrations with optional filtering and pagination. Supports filtering by integration status (active/inactive) and other criteria.", 
-                    inputSchema: Schemas.monitoringIntegrationsSchema 
-                },
-                { 
-                    name: "monitoringIntegrationDetails", 
-                    description: "Retrieve detailed information about a specific integration including configuration, version, and metadata.", 
-                    inputSchema: Schemas.monitoringIntegrationDetailsSchema 
-                },
-                { 
-                    name: "monitoringAgentGroups", 
-                    description: "Retrieve a list of agent groups with optional filtering by name and sorting options.", 
-                    inputSchema: Schemas.monitoringAgentGroupsSchema 
-                },
-                { 
-                    name: "monitoringAgentGroupDetails", 
-                    description: "Retrieve detailed information about a specific agent group including configuration and metadata.", 
-                    inputSchema: Schemas.monitoringAgentGroupDetailsSchema 
-                },
-                { 
-                    name: "monitoringAgentsInGroup", 
-                    description: "Retrieve a list of agents belonging to a specific agent group.", 
-                    inputSchema: Schemas.monitoringAgentsInGroupSchema 
-                },
-                { 
-                    name: "monitoringAuditRecords", 
-                    description: "Retrieve audit records with optional filtering and pagination. Audit records provide a history of actions performed on integrations.", 
-                    inputSchema: Schemas.monitoringAuditRecordsSchema 
-                },
-                { 
-                    name: "monitoringErrorRecoveryJobs", 
-                    description: "Retrieve error recovery jobs that handle bulk resubmission of errored integration instances.", 
-                    inputSchema: Schemas.monitoringErrorRecoveryJobsSchema 
-                },
-                { 
-                    name: "monitoringErroredInstances", 
-                    description: "Retrieve integration instances that have encountered errors, with optional filtering and pagination.", 
-                    inputSchema: Schemas.monitoringErroredInstancesSchema 
-                },
-                { 
-                    name: "monitoringScheduledRuns", 
-                    description: "Retrieve scheduled integration runs with optional filtering and pagination. Applies to scheduled orchestrations.", 
-                    inputSchema: Schemas.monitoringScheduledRunsSchema 
-                },
-                { 
-                    name: "monitoringActivityStream", 
-                    description: "Retrieve the activity stream for a specific integration instance. Activity streams show the execution flow and steps performed during integration instance processing.", 
-                    inputSchema: Schemas.monitoringActivityStreamSchema 
-                },
-                { 
-                    name: "monitoringLogs", 
-                    description: "Retrieve log entries for a specific integration instance. Logs provide detailed execution information, errors, and debugging data.", 
-                    inputSchema: Schemas.monitoringLogsSchema 
-                },
-                { 
-                    name: "monitoringAbortInstance", 
-                    description: "Abort a running integration instance. This operation stops the execution of an in-progress integration instance.", 
-                    inputSchema: Schemas.monitoringAbortInstanceSchema 
-                },
-                { 
-                    name: "monitoringDiscardErroredInstance", 
-                    description: "Discard a single errored integration instance. This removes the errored instance from the error queue.", 
-                    inputSchema: Schemas.monitoringDiscardErroredInstanceSchema 
-                },
-                { 
-                    name: "monitoringDiscardErroredInstances", 
-                    description: "Discard multiple errored integration instances based on filter criteria. This removes errored instances from the error queue.", 
-                    inputSchema: Schemas.monitoringDiscardErroredInstancesSchema 
-                },
-                { 
-                    name: "monitoringResubmitErroredInstance", 
-                    description: "Resubmit a single errored integration instance for reprocessing.", 
-                    inputSchema: Schemas.monitoringResubmitErroredInstanceSchema 
-                },
-                { 
-                    name: "monitoringResubmitErroredInstances", 
-                    description: "Resubmit multiple errored integration instances based on filter criteria for reprocessing.", 
-                    inputSchema: Schemas.monitoringResubmitErroredInstancesSchema 
-                },
-                { 
-                    name: "monitoringErrorRecoveryJobDetails", 
-                    description: "Retrieve detailed information about a specific error recovery job including status and progress.", 
-                    inputSchema: Schemas.monitoringErrorRecoveryJobDetailsSchema 
-                },
-                { 
-                    name: "monitoringErroredInstanceDetails", 
-                    description: "Retrieve detailed information about a specific errored integration instance including error details and context.", 
-                    inputSchema: Schemas.monitoringErroredInstanceDetailsSchema 
-                },
-                { 
-                    name: "monitoringHistory", 
-                    description: "Retrieve historical tracking metrics for integration instances. Provides historical performance and execution data.", 
-                    inputSchema: Schemas.monitoringHistorySchema 
-                },
-                { 
-                    name: "monitoringActivityStreamDetails", 
-                    description: "Retrieve detailed activity stream information for an integration instance. Use this to download large payloads from activity stream details.", 
-                    inputSchema: Schemas.monitoringActivityStreamDetailsSchema 
-                },
-                { 
-                    name: "monitoringMessageCountSummary", 
-                    description: "Retrieve message count summary for integrations. Provides aggregated message statistics across integrations.", 
-                    inputSchema: Schemas.monitoringMessageCountSummarySchema 
-                },
-                { 
-                    name: "monitoringAgentDetails", 
-                    description: "Retrieve detailed status information for a specific agent within an agent group.", 
-                    inputSchema: Schemas.monitoringAgentDetailsSchema 
-                },
-            ],
+            tools: toolDefinitions.map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.schema,
+            })),
         }));
 
         this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { name, arguments: args } = request.params;
             const params = args as any || {};
 
+            const tool = getToolByName(name);
+            if (!tool) {
+                throw new Error(`Unknown tool: ${name}`);
+            }
+
+            const context: ToolContext = {
+                defaultConfig: CONFIG,
+                getAccessToken: this.getAccessToken.bind(this),
+                fetchWithPagination: this.fetchWithPagination.bind(this),
+                fetchSingle: this.fetchSingle.bind(this),
+            };
+
             try {
-                let endpoint = "";
-                let results: any;
-                let id = "";
-                let envConfig = CONFIG;
-                let token = "";
+                const results = await tool.execute(context, params);
 
-                switch (name) {
-                    case "monitoringInstances":
-                        // Validate required parameters
-                        if (!params.environment) {
-                            throw new Error("Environment parameter is required. Valid values: 'dev', 'qa3', 'prod1', 'prod3'");
-                        }
-                        if (!params.duration) {
-                            throw new Error("Duration parameter is required. Valid values: '1h', '6h', '1d', '2d', '3d', 'RETENTIONPERIOD'");
-                        }
-                        if (!params.status) {
-                            throw new Error("Status parameter is required. Valid values: 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ABORTED'");
-                        }
-                        
-                        const environment = params.environment;
-                        envConfig = getConfigForEnvironment(environment);
-                        
-                        // Get access token for the specified environment
-                        token = await this.getAccessToken(envConfig, false, environment);
-                        
-                        // Use full API path from Oracle API documentation
-                        // https://docs.oracle.com/en/cloud/paas/application-integration/rest-api/api-integrations-monitoring.html
-                        endpoint = "/ic/api/integration/v1/monitoring/instances";
-                        
-                        // Set fixed values as per requirements
-                        params.fields = 'detail'; // Set to 'detail' before API call
-                        params.orderBy = 'lastupdateddate'; // Set to lastupdateddate
-                        params.limit = 50; // Set to 50 on API call
-                        params.offset = 0; // Set to 0 on API call
-                        params.groupBy = 'integration'; // Always group by integration
-                        
-                        // Build q parameter from duration and status (both are required)
-                        const duration = params.duration;
-                        const status = params.status;
-                        params.q = `{timewindow:'${duration}', status:'${status}', integration-style:'appdriven', includePurged:'yes'}`;
-                        
-                        // Remove duration, status, environment from params (they're now in q)
-                        delete params.duration;
-                        delete params.status;
-                        delete params.environment;
-                        
-                        // Add required integrationInstance parameter from environment-specific config
-                        // Note: integrationInstance is NOT a tool parameter - it's automatically
-                        // read from the environment config (e.g., OIC_INTEGRATION_INSTANCE_DEV)
-                        // based on the 'environment' parameter
-                        params.integrationInstance = envConfig.integrationInstance;
-                        
-                        results = await this.fetchWithPagination(`${envConfig.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringInstanceDetails":
-                        // Use default config for other tools (or could add environment param later)
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id; // Remove ID from params as it's in URL
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/instances/{id}
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/instances/${id}`, token, params);
-                        break;
-
-                    case "monitoringIntegrations":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/integrations
-                        endpoint = "/ic/api/integration/v1/monitoring/integrations";
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringIntegrationDetails":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/integrations/{id}
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/integrations/${id}`, token, params);
-                        break;
-
-                    case "monitoringAgentGroups":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/agentgroups
-                        endpoint = "/ic/api/integration/v1/monitoring/agentgroups";
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringAgentGroupDetails":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/agentgroups/{id}
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/agentgroups/${id}`, token, params);
-                        break;
-
-                    case "monitoringAgentsInGroup":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/agentgroups/{id}/agents
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/agentgroups/${id}/agents`, token, params);
-                        break;
-
-                    case "monitoringAuditRecords":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/auditRecords
-                        endpoint = "/ic/api/integration/v1/monitoring/auditRecords";
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringErrorRecoveryJobs":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/errors/recoveryJobs
-                        endpoint = "/ic/api/integration/v1/monitoring/errors/recoveryJobs";
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringErroredInstances":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/errors
-                        endpoint = "/ic/api/integration/v1/monitoring/errors";
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringScheduledRuns":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/futureruns
-                        endpoint = "/ic/api/integration/v1/monitoring/futureruns";
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringActivityStream":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: /ic/api/integration/v1/monitoring/instances/{id}/activityStream
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/instances/${id}/activityStream`, token, params);
-                        break;
-
-                    case "monitoringLogs":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Note: Logs endpoint path not found in Oracle API monitoring docs
-                        // Using standard pattern: /ic/api/integration/v1/monitoring/instances/{id}/logs
-                        // Logs might return binary or text, handling as text for now
-                        try {
-                            const logResponse = await axios.get(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/instances/${id}/logs`, {
-                                headers: { 'Authorization': `Bearer ${token}` },
-                                params: params,
-                                responseType: 'text'
-                            });
-                            results = { logContent: logResponse.data };
-                        } catch (error: any) {
-                            // If we get a 401, refresh token and retry
-                            if (error.response?.status === 401) {
-                                console.log("Received 401, refreshing token and retrying...");
-                                const env = 'dev'; // Default environment for other tools
-                                const tokenManager = this.tokenManagers.get(env) || this.tokenManagers.get('dev')!;
-                                tokenManager.clearToken();
-                                const newToken = await this.getAccessToken(CONFIG, true, 'dev');
-                                const logResponse = await axios.get(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/instances/${id}/logs`, {
-                                    headers: { 'Authorization': `Bearer ${newToken}` },
-                                    params: params,
-                                    responseType: 'text'
-                                });
-                                results = { logContent: logResponse.data };
-                            } else {
-                                throw error;
-                            }
-                        }
-                        break;
-
-                    case "monitoringAbortInstance":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: POST /ic/api/integration/v1/monitoring/instances/{id}/abort
-                        const abortResponse = await axios.post(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/instances/${id}/abort`, null, {
-                            headers: { 'Authorization': `Bearer ${token}` },
-                            params: params
-                        });
-                        results = abortResponse.data;
-                        break;
-
-                    case "monitoringDiscardErroredInstance":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: POST /ic/api/integration/v1/monitoring/errors/{id}/discard
-                        const discardResponse = await axios.post(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/${id}/discard`, null, {
-                            headers: { 'Authorization': `Bearer ${token}` },
-                            params: params
-                        });
-                        results = discardResponse.data;
-                        break;
-
-                    case "monitoringDiscardErroredInstances":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: POST /ic/api/integration/v1/monitoring/errors/discard
-                        const discardAllResponse = await axios.post(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/discard`, null, {
-                            headers: { 'Authorization': `Bearer ${token}` },
-                            params: params
-                        });
-                        results = discardAllResponse.data;
-                        break;
-
-                    case "monitoringResubmitErroredInstance":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: POST /ic/api/integration/v1/monitoring/errors/{id}/resubmit
-                        const resubmitResponse = await axios.post(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/${id}/resubmit`, null, {
-                            headers: { 'Authorization': `Bearer ${token}` },
-                            params: params
-                        });
-                        results = resubmitResponse.data;
-                        break;
-
-                    case "monitoringResubmitErroredInstances":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: POST /ic/api/integration/v1/monitoring/errors/resubmit
-                        const resubmitAllResponse = await axios.post(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/resubmit`, null, {
-                            headers: { 'Authorization': `Bearer ${token}` },
-                            params: params
-                        });
-                        results = resubmitAllResponse.data;
-                        break;
-
-                    case "monitoringErrorRecoveryJobDetails":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: GET /ic/api/integration/v1/monitoring/errors/recoveryJobs/{id}
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/recoveryJobs/${id}`, token, params);
-                        break;
-
-                    case "monitoringErroredInstanceDetails":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        delete params.id;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: GET /ic/api/integration/v1/monitoring/errors/{id}
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/${id}`, token, params);
-                        break;
-
-                    case "monitoringHistory":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: GET /ic/api/integration/v1/monitoring/history
-                        endpoint = "/ic/api/integration/v1/monitoring/history";
-                        results = await this.fetchWithPagination(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringActivityStreamDetails":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        const key = params.key;
-                        delete params.id;
-                        delete params.key;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: GET /ic/api/integration/v1/monitoring/instances/{id}/activityStreamDetails/{+key}
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/instances/${id}/activityStreamDetails/${key}`, token, params);
-                        break;
-
-                    case "monitoringMessageCountSummary":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: GET /ic/api/integration/v1/monitoring/integrations/messages/summary
-                        endpoint = "/ic/api/integration/v1/monitoring/integrations/messages/summary";
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}${endpoint}`, token, params);
-                        break;
-
-                    case "monitoringAgentDetails":
-                        token = await this.getAccessToken(CONFIG, false, 'dev');
-                        id = params.id;
-                        const agentKey = params.key;
-                        delete params.id;
-                        delete params.key;
-                        params.integrationInstance = CONFIG.integrationInstance;
-                        // Path from Oracle API docs: GET /ic/api/integration/v1/monitoring/agentgroups/{id}/agents/{key}
-                        results = await this.fetchSingle(`${CONFIG.apiBaseUrl}/ic/api/integration/v1/monitoring/agentgroups/${id}/agents/${agentKey}`, token, params);
-                        break;
-
-                    default:
-                        throw new Error(`Unknown tool: ${name}`);
-                }
-
-                // For paginated results, ensure items array is included
-                // fetchWithPagination returns {totalRecords, retrievedRecords, items}
-                // fetchSingle returns the raw API response
                 let responseData = results;
-                
-                // If results has items property (from fetchWithPagination), return it directly
-                // Otherwise, wrap single results in the expected format
                 if (results && results.items !== undefined) {
-                    // Paginated response - return as-is with items array
                     responseData = results;
                 } else if (results && Array.isArray(results)) {
-                    // Array response - wrap in items
                     responseData = { items: results };
                 } else if (results && results.items === undefined) {
-                    // Single object response - keep as-is
                     responseData = results;
                 }
 
@@ -574,13 +159,12 @@ class OicMonitorServer {
                 };
             } catch (error: any) {
                 let errorMessage = `Error executing ${name}: ${error.message}`;
-                
-                // Provide more detailed error information
+
                 if (error.response) {
                     const status = error.response.status;
                     const statusText = error.response.statusText;
                     const data = error.response.data;
-                    
+
                     if (status === 401) {
                         errorMessage = `Authentication failed (401): The access token may be invalid or expired. Please check your OIC credentials.`;
                     } else if (status === 403) {
@@ -593,9 +177,9 @@ class OicMonitorServer {
                 } else if (error.request) {
                     errorMessage = `Network error: Unable to reach the API server. Please check your network connection and API base URL.`;
                 }
-                
+
                 console.error(`Error in ${name}:`, errorMessage);
-                
+
                 return {
                     content: [
                         {

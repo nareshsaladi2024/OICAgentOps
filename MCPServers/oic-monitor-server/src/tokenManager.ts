@@ -21,11 +21,13 @@ export class TokenManager {
                 const data = fs.readFileSync(this.tokenFilePath, 'utf-8');
                 const tokenData: TokenData = JSON.parse(data);
 
-                if (Date.now() < tokenData.expiry) {
-                    const remainingSeconds = Math.floor((tokenData.expiry - Date.now()) / 1000);
+                const now = Date.now();
+                if (now < tokenData.expiry) {
+                    // Token is still valid
                     return tokenData.accessToken;
                 } else {
-                    // Token expired, clear it
+                    // Token has expired, clear it so a new one will be fetched
+                    console.log("Cached token has expired. Will fetch a new token on next request.");
                     this.clearToken();
                 }
             }
@@ -53,21 +55,35 @@ export class TokenManager {
 
     public saveToken(accessToken: string, expiresInSeconds: number) {
         try {
-            const expiry = Date.now() + (expiresInSeconds * 1000) - 60000; // Buffer of 60s
+            // Cache token for the full duration (3600 seconds = 1 hour)
+            // Subtract 60 seconds buffer to ensure we refresh before actual expiry
+            const bufferSeconds = 60;
+            const cachedDuration = expiresInSeconds - bufferSeconds;
+            const expiry = Date.now() + (expiresInSeconds * 1000) - (bufferSeconds * 1000);
             const tokenData: TokenData = {
                 accessToken,
                 expiry
             };
             fs.writeFileSync(this.tokenFilePath, JSON.stringify(tokenData), 'utf-8');
+            const minutes = Math.floor(cachedDuration / 60);
+            const seconds = cachedDuration % 60;
+            console.log(`Token cached successfully. Will be valid for ${minutes}m ${seconds}s (refreshes ${bufferSeconds}s before API expiry)`);
         } catch (error) {
             console.error("Error saving token file:", error);
         }
     }
 
-    public clearToken() {
+    public clearToken(silent: boolean = false) {
         try {
             if (fs.existsSync(this.tokenFilePath)) {
                 fs.unlinkSync(this.tokenFilePath);
+                if (!silent) {
+                    console.log(`✓ Token cache file deleted: ${this.tokenFilePath}`);
+                }
+            } else {
+                if (!silent) {
+                    console.log("No token cache file found to delete.");
+                }
             }
         } catch (error) {
             console.error("Error clearing token file:", error);

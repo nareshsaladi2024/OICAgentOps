@@ -1,0 +1,10 @@
+{
+  "agent_engine": {
+    "name": "MonitorQueueRequestAgent",
+    "display_name": "Monitor Queue Request Agent",
+    "description": "Monitors integration instances in the queue by retrieving IN_PROGRESS instances from Oracle Integration Cloud",
+    "model": "gemini-2.5-flash-lite",
+    "region": "us-central1"
+  }
+}
+

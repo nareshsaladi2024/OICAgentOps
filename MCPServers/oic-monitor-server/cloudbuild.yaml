@@ -1,0 +1,33 @@
+# Cloud Build configuration for building OIC Monitor MCP Server image
+# Usage: gcloud builds submit --config=cloudbuild.yaml
+
+steps:
+  # Build oic-monitor-server
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/oic-monitor-server:latest'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/oic-monitor-server:$SHORT_SHA'
+      - '.'
+    id: 'build-oic-monitor-server'
+
+  # Push oic-monitor-server
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/oic-monitor-server:latest'
+    waitFor: ['build-oic-monitor-server']
+    id: 'push-oic-monitor-server'
+
+images:
+  - 'gcr.io/$PROJECT_ID/oic-monitor-server:latest'
+  - 'gcr.io/$PROJECT_ID/oic-monitor-server:$SHORT_SHA'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '1200s'
+

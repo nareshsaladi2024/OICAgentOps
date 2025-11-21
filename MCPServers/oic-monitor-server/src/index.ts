@@ -19,25 +19,97 @@ interface OicResponse {
 // --- Schemas ---
 
 const commonListSchema = {
-    q: { type: "string", description: "Filter parameters." },
-    orderBy: { type: "string", description: "Sort order." },
-    limit: { type: "number", description: "Maximum number of items to return." },
-    offset: { type: "number", description: "Starting point for pagination." }
+    q: { 
+        type: "string", 
+        description: `Filter parameters using OIC query syntax. Supports multiple filters combined with commas.
+        
+Filter options:
+- timewindow: '1h', '6h', '1d', '2d', '3d', 'RETENTIONPERIOD' (default: '1h')
+- code: Integration identifier
+- version: Integration version
+- minDuration: Minimum duration in milliseconds
+- maxDuration: Maximum duration in milliseconds
+- status: 'COMPLETED', 'FAILED', 'ABORTED'
+- startdate: Start date/time in UTC format (within 32 days retention)
+- enddate: End date/time in UTC format (within 32 days retention)
+- primaryValue: Search primary variable values (use '"value"' for multi-word, '[value]' for exact match)
+- secondaryValue: Search secondary/tertiary variable values
+- tertiaryValue: Search tertiary variable values
+- primaryName: Primary variable name
+- secondaryName: Secondary variable name
+- tertiaryName: Tertiary variable name
+- businessIDValue: Search across primary, secondary, tertiary variables
+- jobid: Recovery job identifier
+- runId: Run identifier of scheduled integration instance
+- requestId: Request ID for scheduled orchestrations
+- id: Integration instance identifier
+- instanceId: Integration instance identifier
+- includePurged: 'yes', 'no', 'onlyPurged'
+- parentInstanceId: Parent integration instance identifier
+- projectCode: Project identifier
+- integration-style: 'appdriven' or 'scheduled'
+
+Example: {timewindow:'1h', status:'FAILED', code:'ERROR', version:'01.00.0000'}`,
+        default: "{timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}"
+    },
+    orderBy: { 
+        type: "string", 
+        description: "Sort order. Valid values: 'lastupdateddate', 'creationdate', 'executiontime'. Default: 'lastupdateddate'",
+        enum: ["lastupdateddate", "creationdate", "executiontime"],
+        default: "lastupdateddate"
+    },
+    limit: { 
+        type: "number", 
+        description: "Maximum number of items to return per page. Use with offset for pagination.",
+        minimum: 1,
+        maximum: 1000,
+        default: 50
+    },
+    offset: { 
+        type: "number", 
+        description: "Starting point for pagination (0-based index). Use with limit for pagination. Example: offset=3&limit=16 returns items starting at 4th position.",
+        minimum: 0,
+        default: 0
+    }
 };
 
 const monitoringInstancesSchema = {
     type: "object",
     properties: {
         ...commonListSchema,
-        fields: { type: "string", description: "Limit query results to a few fields. Valid values: runId, id, all." },
-        groupBy: { type: "string", description: "Groups results by integration name. Valid values: integration." }
+        fields: { 
+            type: "string", 
+            description: "Limit query results to specific fields. Valid values: 'runId' (returns only runId), 'id' (returns only id), 'all' (returns all fields). Use 'runId' or 'id' for faster responses.",
+            enum: ["runId", "id", "all"],
+            default: "runId"
+        },
+        groupBy: { 
+            type: "string", 
+            description: "Groups results by integration name. Valid value: 'integration'",
+            enum: ["integration"],
+            default: ""
+        },
+        return: {
+            type: "string",
+            description: `Controls the response data format. Valid values:
+- 'metadataminimal': Fast response with metadata only (instanceId, integrationId, integrationVersion, status). No integration/project names.
+- 'metadata': Metadata including integration and project names if available.
+- 'minimal': Minimal information for faster response. Integration/project names may be default values.
+- 'summary': Default response format. Contains complete instance data without non-primary tracking variables.`,
+            enum: ["metadataminimal", "metadata", "minimal", "summary"],
+            default: "summary"
+        }
     },
 };
 
 const monitoringInstanceDetailsSchema = {
     type: "object",
     properties: {
-        id: { type: "string", description: "The ID of the integration instance." }
+        id: { 
+            type: "string", 
+            description: "The unique identifier (instanceId) of the integration instance. This is the instance ID returned from the instances list endpoint.",
+            minLength: 1
+        }
     },
     required: ["id"]
 };
@@ -46,14 +118,23 @@ const monitoringIntegrationsSchema = {
     type: "object",
     properties: {
         ...commonListSchema,
-        return: { type: "string", description: "Type of records to return." }
+        return: { 
+            type: "string", 
+            description: "Type of records to return. Controls the response data format. Valid values: 'all' (all records), 'active' (active integrations only), 'inactive' (inactive integrations only).",
+            enum: ["all", "active", "inactive"],
+            default: "all"
+        }
     },
 };
 
 const monitoringIntegrationDetailsSchema = {
     type: "object",
     properties: {
-        id: { type: "string", description: "The ID of the integration." }
+        id: { 
+            type: "string", 
+            description: "The unique identifier (integrationId) of the integration. This can be the integration code or integration ID.",
+            minLength: 1
+        }
     },
     required: ["id"]
 };
@@ -61,15 +142,27 @@ const monitoringIntegrationDetailsSchema = {
 const monitoringAgentGroupsSchema = {
     type: "object",
     properties: {
-        q: { type: "string", description: "Filters results by agent group name." },
-        orderBy: { type: "string", description: "Orders results by name or last updated time." }
+        q: { 
+            type: "string", 
+            description: "Filter query string to filter results by agent group name. Supports partial matching and search patterns.",
+            default: ""
+        },
+        orderBy: { 
+            type: "string", 
+            description: "Sort order for results. Valid values: 'name' (by agent group name), 'lastupdatedtime' (by last updated time). Prefix with '-' for descending order (e.g., '-name').",
+            default: "name"
+        }
     },
 };
 
 const monitoringAgentGroupDetailsSchema = {
     type: "object",
     properties: {
-        id: { type: "string", description: "The ID of the agent group." }
+        id: { 
+            type: "string", 
+            description: "The unique identifier of the agent group. This is the agent group ID returned from the agent groups list endpoint.",
+            minLength: 1
+        }
     },
     required: ["id"]
 };
@@ -77,7 +170,11 @@ const monitoringAgentGroupDetailsSchema = {
 const monitoringAgentsInGroupSchema = {
     type: "object",
     properties: {
-        id: { type: "string", description: "The ID of the agent group." }
+        id: { 
+            type: "string", 
+            description: "The unique identifier of the agent group to retrieve agents for. This is the agent group ID returned from the agent groups list endpoint.",
+            minLength: 1
+        }
     },
     required: ["id"]
 };
@@ -105,7 +202,11 @@ const monitoringScheduledRunsSchema = {
 const monitoringActivityStreamSchema = {
     type: "object",
     properties: {
-        id: { type: "string", description: "The ID of the integration instance." }
+        id: { 
+            type: "string", 
+            description: "The unique identifier (instanceId) of the integration instance to retrieve the activity stream for. This is the instance ID returned from the instances list endpoint.",
+            minLength: 1
+        }
     },
     required: ["id"]
 };
@@ -113,7 +214,11 @@ const monitoringActivityStreamSchema = {
 const monitoringLogsSchema = {
     type: "object",
     properties: {
-        id: { type: "string", description: "The ID of the integration instance." }
+        id: { 
+            type: "string", 
+            description: "The unique identifier (instanceId) of the integration instance to retrieve logs for. This is the instance ID returned from the instances list endpoint.",
+            minLength: 1
+        }
     },
     required: ["id"]
 };
@@ -125,6 +230,11 @@ class OicMonitorServer {
 
     constructor() {
         this.tokenManager = new TokenManager();
+        
+        // Clear any existing token file on server startup
+        console.log("🔄 Clearing any existing token cache on server startup...");
+        this.tokenManager.clearToken(false); // Show message on startup
+        
         this.server = new Server(
             {
                 name: "RetrieveIntegrationInstances",
@@ -146,6 +256,7 @@ class OicMonitorServer {
     }
 
     private async getAccessToken(forceRefresh: boolean = false): Promise<string> {
+        // Check for cached token first (unless force refresh is requested)
         if (!forceRefresh) {
             const cachedToken = this.tokenManager.getToken();
             if (cachedToken) {
@@ -153,14 +264,15 @@ class OicMonitorServer {
                 if (remainingTime !== null) {
                     const minutes = Math.floor(remainingTime / 60);
                     const seconds = remainingTime % 60;
-                    console.log(`Using cached access token (${minutes}m ${seconds}s remaining)`);
+                    console.log(`✓ Using cached access token (${minutes}m ${seconds}s remaining until refresh)`);
                 } else {
-                    console.log("Using cached access token");
+                    console.log("✓ Using cached access token");
                 }
                 return cachedToken;
             }
         }
 
+        // No valid cached token found, fetch a new one
         try {
             const params = new URLSearchParams();
             params.append('grant_type', 'client_credentials');
@@ -170,7 +282,7 @@ class OicMonitorServer {
                 throw new Error("OIC authentication credentials not configured. Please set OIC_CLIENT_ID, OIC_CLIENT_SECRET, and OIC_TOKEN_URL environment variables.");
             }
 
-            console.log("Fetching new access token from OIC authentication server...");
+            console.log("🔄 Fetching new access token from OIC authentication server...");
             const auth = Buffer.from(`${CONFIG.clientId}:${CONFIG.clientSecret}`).toString('base64');
 
             const response = await axios.post(CONFIG.tokenUrl, params, {
@@ -181,9 +293,10 @@ class OicMonitorServer {
             });
 
             const accessToken = response.data.access_token;
+            // Use API's expires_in value or default to 3600 seconds (1 hour)
             const expiresIn = response.data.expires_in || 3600;
 
-            console.log(`Caching access token for ${expiresIn} seconds (${Math.round(expiresIn / 60)} minutes)`);
+            console.log(`💾 Caching access token for ${expiresIn} seconds (${Math.round(expiresIn / 60)} minutes)`);
             this.tokenManager.saveToken(accessToken, expiresIn);
 
             return accessToken;
@@ -199,19 +312,71 @@ class OicMonitorServer {
     private setupHandlers() {
         this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
             tools: [
-                { name: "monitoringInstances", description: "Retrieve Integration Instances", inputSchema: monitoringInstancesSchema },
-                { name: "monitoringInstanceDetails", description: "Retrieve Integration Instance Details", inputSchema: monitoringInstanceDetailsSchema },
-                { name: "monitoringIntegrations", description: "Retrieve Integrations", inputSchema: monitoringIntegrationsSchema },
-                { name: "monitoringIntegrationDetails", description: "Retrieve Integration Details", inputSchema: monitoringIntegrationDetailsSchema },
-                { name: "monitoringAgentGroups", description: "Retrieve Agent Groups", inputSchema: monitoringAgentGroupsSchema },
-                { name: "monitoringAgentGroupDetails", description: "Retrieve Agent Group Details", inputSchema: monitoringAgentGroupDetailsSchema },
-                { name: "monitoringAgentsInGroup", description: "Retrieve Agents in Group", inputSchema: monitoringAgentsInGroupSchema },
-                { name: "monitoringAuditRecords", description: "Retrieve Audit Records", inputSchema: monitoringAuditRecordsSchema },
-                { name: "monitoringErrorRecoveryJobs", description: "Retrieve Error Recovery Jobs", inputSchema: monitoringErrorRecoveryJobsSchema },
-                { name: "monitoringErroredInstances", description: "Retrieve Errored Instances", inputSchema: monitoringErroredInstancesSchema },
-                { name: "monitoringScheduledRuns", description: "Retrieve Scheduled Runs", inputSchema: monitoringScheduledRunsSchema },
-                { name: "monitoringActivityStream", description: "Retrieve Activity Stream", inputSchema: monitoringActivityStreamSchema },
-                { name: "monitoringLogs", description: "Retrieve Logs", inputSchema: monitoringLogsSchema },
+                { 
+                    name: "monitoringInstances", 
+                    description: `Retrieve information about integration instances for the past hour (default) ordered by last updated time. Supports advanced filtering, pagination, and field selection. You can perform multi-word value searches using businessIDValue, primaryValue, secondaryValue, and tertiaryValue attributes. Supports filtering by status, time window, integration code, version, duration, dates, tracking variables, and more. Reference: https://docs.oracle.com/en/cloud/paas/application-integration/rest-api/op-ic-api-integration-v1-monitoring-instances-get.html`, 
+                    inputSchema: monitoringInstancesSchema 
+                },
+                { 
+                    name: "monitoringInstanceDetails", 
+                    description: "Retrieve detailed information about a specific integration instance including status, tracking variables, audit trails, activity streams, and execution details.", 
+                    inputSchema: monitoringInstanceDetailsSchema 
+                },
+                { 
+                    name: "monitoringIntegrations", 
+                    description: "Retrieve a list of integrations with optional filtering and pagination. Supports filtering by integration status (active/inactive) and other criteria.", 
+                    inputSchema: monitoringIntegrationsSchema 
+                },
+                { 
+                    name: "monitoringIntegrationDetails", 
+                    description: "Retrieve detailed information about a specific integration including configuration, version, and metadata.", 
+                    inputSchema: monitoringIntegrationDetailsSchema 
+                },
+                { 
+                    name: "monitoringAgentGroups", 
+                    description: "Retrieve a list of agent groups with optional filtering by name and sorting options.", 
+                    inputSchema: monitoringAgentGroupsSchema 
+                },
+                { 
+                    name: "monitoringAgentGroupDetails", 
+                    description: "Retrieve detailed information about a specific agent group including configuration and metadata.", 
+                    inputSchema: monitoringAgentGroupDetailsSchema 
+                },
+                { 
+                    name: "monitoringAgentsInGroup", 
+                    description: "Retrieve a list of agents belonging to a specific agent group.", 
+                    inputSchema: monitoringAgentsInGroupSchema 
+                },
+                { 
+                    name: "monitoringAuditRecords", 
+                    description: "Retrieve audit records with optional filtering and pagination. Audit records provide a history of actions performed on integrations.", 
+                    inputSchema: monitoringAuditRecordsSchema 
+                },
+                { 
+                    name: "monitoringErrorRecoveryJobs", 
+                    description: "Retrieve error recovery jobs that handle bulk resubmission of errored integration instances.", 
+                    inputSchema: monitoringErrorRecoveryJobsSchema 
+                },
+                { 
+                    name: "monitoringErroredInstances", 
+                    description: "Retrieve integration instances that have encountered errors, with optional filtering and pagination.", 
+                    inputSchema: monitoringErroredInstancesSchema 
+                },
+                { 
+                    name: "monitoringScheduledRuns", 
+                    description: "Retrieve scheduled integration runs with optional filtering and pagination. Applies to scheduled orchestrations.", 
+                    inputSchema: monitoringScheduledRunsSchema 
+                },
+                { 
+                    name: "monitoringActivityStream", 
+                    description: "Retrieve the activity stream for a specific integration instance. Activity streams show the execution flow and steps performed during integration instance processing.", 
+                    inputSchema: monitoringActivityStreamSchema 
+                },
+                { 
+                    name: "monitoringLogs", 
+                    description: "Retrieve log entries for a specific integration instance. Logs provide detailed execution information, errors, and debugging data.", 
+                    inputSchema: monitoringLogsSchema 
+                },
             ],
         }));
 
@@ -459,11 +624,51 @@ class OicMonitorServer {
     async run() {
         let transport: SSEServerTransport;
 
+        // Health check endpoint for Cloud Run and Docker
+        this.app.get("/health", (req, res) => {
+            res.status(200).json({
+                status: "healthy",
+                service: "oic-monitor-mcp-server",
+                version: "1.0.0",
+                timestamp: new Date().toISOString()
+            });
+        });
+
+        // Root endpoint
+        this.app.get("/", (req, res) => {
+            res.json({
+                service: "OIC Monitor MCP Server",
+                version: "1.0.0",
+                endpoints: {
+                    sse: "/sse",
+                    health: "/health",
+                    messages: "/messages"
+                },
+                tools: [
+                    "monitoringInstances",
+                    "monitoringInstanceDetails",
+                    "monitoringIntegrations",
+                    "monitoringIntegrationDetails",
+                    "monitoringAgentGroups",
+                    "monitoringAgentGroupDetails",
+                    "monitoringAgentsInGroup",
+                    "monitoringAuditRecords",
+                    "monitoringErrorRecoveryJobs",
+                    "monitoringErroredInstances",
+                    "monitoringScheduledRuns",
+                    "monitoringActivityStream",
+                    "monitoringLogs"
+                ]
+            });
+        });
+
+        // SSE endpoint for MCP protocol
         this.app.get("/sse", async (req, res) => {
             transport = new SSEServerTransport("/messages", res);
             await this.server.connect(transport);
         });
 
+        // Messages endpoint for MCP protocol
         this.app.post("/messages", async (req, res) => {
             if (transport) {
                 await transport.handlePostMessage(req, res);
@@ -473,10 +678,38 @@ class OicMonitorServer {
         });
 
         const port = process.env.PORT || 3000;
-        this.app.listen(port, () => {
-            console.log(`RetrieveIntegrationInstances Server running on port ${port}`);
+        const server = this.app.listen(port, () => {
+            console.log(`OIC Monitor MCP Server running on port ${port}`);
             console.log(`SSE Endpoint: http://localhost:${port}/sse`);
+            console.log(`Health Check: http://localhost:${port}/health`);
         });
+
+        // Setup graceful shutdown handlers to clear token on server stop
+        let isShuttingDown = false;
+        const shutdown = async (signal: string) => {
+            if (isShuttingDown) {
+                return; // Prevent multiple shutdown calls
+            }
+            isShuttingDown = true;
+            
+            console.log(`\n${signal} received. Shutting down gracefully...`);
+            console.log("🔄 Clearing token cache on server shutdown...");
+            this.tokenManager.clearToken(true); // Silent if no file exists (expected after startup deletion)
+            
+            server.close(() => {
+                console.log("Server closed.");
+                process.exit(0);
+            });
+            
+            // Force exit after 5 seconds if server doesn't close
+            setTimeout(() => {
+                console.log("Forcing exit...");
+                process.exit(1);
+            }, 5000);
+        };
+
+        process.on('SIGINT', () => shutdown('SIGINT'));
+        process.on('SIGTERM', () => shutdown('SIGTERM'));
     }
 }
 

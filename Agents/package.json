@@ -1,0 +1,21 @@
+{
+  "name": "monitor-queue-request-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "MonitorQueueRequestAgent.js",
+  "scripts": {
+    "start": "node --loader ts-node/esm MonitorQueueRequestAgent.ts",
+    "build": "tsc",
+    "run": "node dist/MonitorQueueRequestAgent.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "eventsource": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
+

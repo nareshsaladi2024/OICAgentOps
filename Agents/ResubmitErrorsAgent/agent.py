@@ -1,8 +1,8 @@
 """
-MonitorQueueRequestAgent
+ResubmitErrorsAgent
 
-Uses Google ADK to create an agent that monitors integration instances in the queue
-by calling the monitoringInstances tool from the OIC Monitor MCP server.
+Uses Google ADK to create an agent that resubmits errored integration instances
+by calling the monitoringResubmitErroredInstances tool from the OIC Monitor MCP server.
 """
 
 from google.adk.agents import Agent
@@ -13,7 +13,7 @@ import requests
 import json
 import logging
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -51,7 +51,7 @@ try:
     sys.path.insert(0, str(parent_dir))
     from utility.logging_config import setup_adk_logging, ensure_debug_logging
     # Setup logging - reads ADK_LOG_LEVEL from .env or defaults to DEBUG
-    setup_adk_logging(agent_name="MonitorQueueRequestAgent", file_only=True)
+    setup_adk_logging(agent_name="ResubmitErrorsAgent", file_only=True)
 except ImportError:
     # Fallback: Basic logging setup if utility module not available
     import logging
@@ -59,34 +59,43 @@ except ImportError:
         level=logging.DEBUG if os.getenv("ADK_LOG_LEVEL", "INFO").upper() == "DEBUG" else logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    logger = logging.getLogger("MonitorQueueRequestAgent")
+    logger = logging.getLogger("ResubmitErrorsAgent")
     logger.info("Using basic logging (utility.logging_config not available)")
 
 
-def call_mcp_monitoring_instances(
-    q: str = "{timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}",
-    orderBy: str = "lastupdateddate",
-    fields: str = "runId",
-    return_format: str = "summary",
+def call_mcp_resubmit_errors(
+    instanceIds: List[str] = None,
     mcp_server_url: Optional[str] = None
 ) -> str:
     """
-    Call the MCP server's monitoringInstances tool to retrieve integration instances.
-    
-    This tool queries the OIC Monitor MCP server to get integration instances that are
-    currently IN_PROGRESS from the past hour. The MCP server handles pagination internally
-    starting with offset=0 and limit=50.
+    Call the MCP server's monitoringResubmitErroredInstances tool to resubmit errored instances.
     
     Args:
-        q: Filter query string. Default: {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
-        orderBy: Sort order (default: 'lastupdateddate')
-        fields: Field selection (default: 'runId')
-        return_format: Response format (default: 'summary')
+        instanceIds: List of instance IDs to resubmit. If None or empty, attempts to read from shared state.
         mcp_server_url: URL of the MCP server (optional, uses MCP_SERVER_URL env var)
     
     Returns:
-        JSON string with integration instances information (raw response from MCP server)
+        JSON string with the result of the resubmission.
     """
+    # Try to load from shared state if no IDs provided
+    if not instanceIds:
+        try:
+            shared_state_path = Path(__file__).parent.parent / 'shared_state.json'
+            if shared_state_path.exists():
+                with open(shared_state_path, 'r') as f:
+                    state = json.load(f)
+                    instanceIds = state.get("last_errored_instance_ids", [])
+                    # print(f"Loaded {len(instanceIds)} instance IDs from shared state.")
+        except Exception as e:
+            # print(f"Warning: Failed to load shared state: {e}")
+            pass
+            
+    if not instanceIds:
+        return json.dumps({
+            "isError": True,
+            "error": "No instance IDs provided and no recent errors found in shared state."
+        }, indent=2)
+
     if not mcp_server_url:
         mcp_server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:3000")
     
@@ -101,12 +110,10 @@ def call_mcp_monitoring_instances(
         "id": request_id,
         "method": "tools/call",
         "params": {
-            "name": "monitoringInstances",
+            "name": "monitoringResubmitErroredInstances",
             "arguments": {
-                "q": q,
-                "orderBy": orderBy,
-                "fields": fields,
-                "return": return_format
+                "instanceIds": instanceIds,
+                "return": "monitoringui"
             }
         }
     }
@@ -155,6 +162,45 @@ def call_mcp_monitoring_instances(
                                     return text_content
                                 except json.JSONDecodeError:
                                     return json.dumps({"raw": text_content})
+                # Save job IDs to shared state for other agents (e.g., RecoveryJobAgent)
+                try:
+                    job_ids = []
+                    if isinstance(result, dict):
+                        # Check for direct jobId or id
+                        if "jobId" in result:
+                            job_ids.append(result["jobId"])
+                        elif "id" in result:
+                            job_ids.append(result["id"])
+                        # Check for items/content structure if multiple jobs returned
+                        elif "items" in result:
+                            for item in result["items"]:
+                                if "jobId" in item:
+                                    job_ids.append(item["jobId"])
+                                elif "id" in item:
+                                    job_ids.append(item["id"])
+                    
+                    if job_ids:
+                        shared_state_path = Path(__file__).parent.parent / 'shared_state.json'
+                        
+                        # Read existing state first to preserve other data
+                        state = {}
+                        if shared_state_path.exists():
+                            try:
+                                with open(shared_state_path, 'r') as f:
+                                    state = json.load(f)
+                            except:
+                                pass
+                        
+                        # Update state
+                        state["last_recovery_job_ids"] = job_ids
+                        
+                        with open(shared_state_path, 'w') as f:
+                            json.dump(state, f)
+                        # print(f"Saved {len(job_ids)} job IDs to shared state.")
+                except Exception as e:
+                    # print(f"Warning: Failed to save shared state: {e}")
+                    pass
+
                 return json.dumps(result, indent=2)
             except ValueError:
                 # If not JSON, read as text (SSE format)
@@ -239,48 +285,38 @@ AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-2.5-flash-lite")
 
 # Create the AI Agent using Google ADK
 root_agent = Agent(
-    name="MonitorQueueRequestAgent",
+    name="ResubmitErrorsAgent",
     model=AGENT_MODEL,
-    description="OIC monitor queue requests agent that returns pending request count in queue along with details.",
+    description="OIC Resubmit Errors Agent responsible for resubmitting errored integration instances.",
     instruction="""
-    You are an OIC monitor queue requests agent that returns pending request count in queue along with details.
+    You are an OIC Resubmit Errors Agent responsible for resubmitting errored integration instances.
     
-    When users ask for any requests pending in queue before processing:
+    When users ask to resubmit errored instances:
     
-    1. Call the call_mcp_monitoring_instances tool to query for OIC activity stream instances. The MCP server automatically handles pagination internally (starting with offset=0 and limit=50) and returns all matching instances.
+    1. Identify the instance IDs provided by the user.
+       - If the user provides specific IDs, use them.
+       - If the user asks to "resubmit previous errors" or "resubmit the errors found", pass an empty list to the tool. The tool will automatically look for recently monitored errors in the shared state.
     
-    2. Use the following parameters in the request:
-       {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
+    2. Call the call_mcp_resubmit_errors tool with the list of instance IDs (or empty list).
     
-    3. Filter the response to match instances with:
-       - status: "IN_PROGRESS"
-       - mepType: "ASYNC_ONE_WAY"
-       - dataFetchTime - creationDate > 15 minutes (date format: 2025-11-21T04:33:10.496+0000 GMT)
-    
-    4. Return details in structured HTML format that is readable:
-       - Total count of matching instances
-       - HTML table with the following columns:
-         * creationDate (converted to MST timezone)
-         * integration name
-         * instanceId
-         * tracking variable (name-value pairs, shortened to 200 characters)
-    
-    6. Format the HTML table with proper styling for readability (use table tags with headers, borders, and appropriate spacing).
+    3. Return the result of the resubmission in a clear, readable format.
+       - If successful, confirm which instances were resubmitted.
+       - If there were errors, report them.
+       - If no instances were found to resubmit, inform the user.
     
     If the OIC Monitor MCP server is not available:
     1. Use the check_mcp_server_health tool to diagnose the issue
     2. Provide helpful guidance on how to start the server
-    3. Suggest alternative approaches if possible
     
-    Always present the results in clear, structured HTML format for easy reading and analysis.
+    Always present the results in clear, structured format.
     """,
-    tools=[call_mcp_monitoring_instances, check_mcp_server_health]
+    tools=[call_mcp_resubmit_errors, check_mcp_server_health]
 )
 
 
 if __name__ == "__main__":
     # Example usage
-    print("MonitorQueueRequestAgent")
+    print("ResubmitErrorsAgent")
     print("=" * 50)
     print()
     
@@ -294,8 +330,15 @@ if __name__ == "__main__":
     
     # Example query
     if health.get("status") == "healthy":
-        print("Example: Getting IN_PROGRESS instances from queue...")
-        result = root_agent.run("What integration instances are currently IN_PROGRESS in the queue?")
+        print("Example: Resubmitting instances...")
+        # Use query() instead of run() for ADK agents
+        # Note: The exact method depends on the ADK version, checking common patterns
+        if hasattr(root_agent, 'query'):
+            result = root_agent.query("Resubmit the following instances: ['123456', '789012']")
+        else:
+            # Fallback to __call__ or similar if query/run aren't available directly
+            # For many agent frameworks, the instance itself is callable
+            result = root_agent.query("Resubmit the following instances: ['123456', '789012']")
         print(result)
     else:
         print("⚠️  OIC Monitor MCP server is not running. Please start it with:")

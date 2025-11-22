@@ -22,19 +22,19 @@ class OicMonitorServer {
     constructor() {
         // Use a map to store token managers per environment
         this.tokenManagers = new Map();
-        
+
         // Initialize token managers for each environment
         const environments = ['dev', 'qa3', 'prod1', 'prod3'];
         environments.forEach(env => {
             this.tokenManagers.set(env, new TokenManager());
         });
-        
+
         // Clear any existing token files on server startup
         console.log("🔄 Clearing any existing token cache on server startup...");
         this.tokenManagers.forEach((tokenManager) => {
             tokenManager.clearToken(false); // Show message on startup
         });
-        
+
         this.server = new Server(
             {
                 name: "RetrieveIntegrationInstances",
@@ -58,7 +58,7 @@ class OicMonitorServer {
     private async getAccessToken(envConfig: any, forceRefresh: boolean = false, environment?: string): Promise<string> {
         const env = environment || 'dev';
         const tokenManager = this.tokenManagers.get(env) || this.tokenManagers.get('dev')!;
-        
+
         // Check for cached token first (unless force refresh is requested)
         if (!forceRefresh) {
             const cachedToken = tokenManager.getToken();
@@ -317,7 +317,7 @@ class OicMonitorServer {
             // Get the last record's date to use as filter for next batch
             const lastItem = batchItems[batchItems.length - 1];
             const lastDate = lastItem['creation-date'] || lastItem['creationDate'] || lastItem['last-tracked-time'] || lastItem['lastTrackedTime'] || lastItem['date'];
-            
+
             if (lastDate) {
                 lastRecordDate = lastDate;
                 console.log(`Batch ${batchNumber}: Retrieved ${batchItems.length} records. Total so far: ${allItems.length}. Using last record date: ${lastRecordDate} for next batch.`);
@@ -440,7 +440,20 @@ class OicMonitorServer {
 
         // Connect server to Streamable HTTP transport
         // Note: connect() will automatically start the transport, so we don't call start() explicitly
+        console.log("Connecting to StreamableHTTP transport...");
         await this.server.connect(streamableHttpTransport);
+        // Explicitly start the transport if connect didn't do it (workaround)
+        try {
+            // @ts-ignore - start might be protected or not in type definition depending on SDK version
+            if (streamableHttpTransport.start) {
+                console.log("Explicitly starting StreamableHTTP transport...");
+                await streamableHttpTransport.start(this.server);
+                console.log("Explicitly started StreamableHTTP transport.");
+            }
+        } catch (e) {
+            console.log("Error starting transport (might be already started):", e);
+        }
+        console.log("Connected to StreamableHTTP transport.");
 
         // Handle all HTTP methods for Streamable HTTP transport
         // GET /stream - Establish SSE stream (for server-to-client messages)
@@ -481,18 +494,18 @@ class OicMonitorServer {
                 return; // Prevent multiple shutdown calls
             }
             isShuttingDown = true;
-            
+
             console.log(`\n${signal} received. Shutting down gracefully...`);
             console.log("🔄 Clearing token cache on server shutdown...");
             this.tokenManagers.forEach((tokenManager) => {
                 tokenManager.clearToken(true); // Silent if no file exists (expected after startup deletion)
             });
-            
+
             server.close(() => {
                 console.log("Server closed.");
                 process.exit(0);
             });
-            
+
             // Force exit after 5 seconds if server doesn't close
             setTimeout(() => {
                 console.log("Forcing exit...");

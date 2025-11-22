@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  monitor-queue-request-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: monitor-queue-request-agent
+    environment:
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-aiagent-capstoneproject}
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-us-central1}
+      - MCP_SERVER_URL=${MCP_SERVER_URL:-http://host.docker.internal:3000}
+      - AGENT_MODEL=${AGENT_MODEL:-gemini-2.5-flash-lite}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
+    volumes:
+      # Mount credentials if using service account
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-./credentials.json}:/app/credentials.json:ro
+    ports:
+      - "8000:8000"
+    networks:
+      - agent-network
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  agent-network:
+    driver: bridge
+

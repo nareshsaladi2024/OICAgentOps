@@ -1,8 +1,8 @@
 """
-MonitorQueueRequestAgent
+MonitorErrorsAgent
 
-Uses Google ADK to create an agent that monitors integration instances in the queue
-by calling the monitoringInstances tool from the OIC Monitor MCP server.
+Uses Google ADK to create an agent that monitors errored integration instances
+by calling the monitoringErroredInstances tool from the OIC Monitor MCP server.
 """
 
 from google.adk.agents import Agent
@@ -51,7 +51,7 @@ try:
     sys.path.insert(0, str(parent_dir))
     from utility.logging_config import setup_adk_logging, ensure_debug_logging
     # Setup logging - reads ADK_LOG_LEVEL from .env or defaults to DEBUG
-    setup_adk_logging(agent_name="MonitorQueueRequestAgent", file_only=True)
+    setup_adk_logging(agent_name="MonitorErrorsAgent", file_only=True)
 except ImportError:
     # Fallback: Basic logging setup if utility module not available
     import logging
@@ -59,33 +59,32 @@ except ImportError:
         level=logging.DEBUG if os.getenv("ADK_LOG_LEVEL", "INFO").upper() == "DEBUG" else logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    logger = logging.getLogger("MonitorQueueRequestAgent")
+    logger = logging.getLogger("MonitorErrorsAgent")
     logger.info("Using basic logging (utility.logging_config not available)")
 
 
-def call_mcp_monitoring_instances(
-    q: str = "{timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}",
+def call_mcp_monitoring_errored_instances(
+    q: str = "{timewindow:'1h', recoverable:'true', integration-style:'appdriven', includePurged:'no'}",
     orderBy: str = "lastupdateddate",
     fields: str = "runId",
     return_format: str = "summary",
     mcp_server_url: Optional[str] = None
 ) -> str:
     """
-    Call the MCP server's monitoringInstances tool to retrieve integration instances.
+    Call the MCP server's monitoringErroredInstances tool to retrieve errored integration instances.
     
     This tool queries the OIC Monitor MCP server to get integration instances that are
-    currently IN_PROGRESS from the past hour. The MCP server handles pagination internally
-    starting with offset=0 and limit=50.
+    currently in ERROR state. The MCP server handles pagination internally.
     
     Args:
-        q: Filter query string. Default: {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
+        q: Filter query string. Default: {timewindow:'1h', recoverable:'true', integration-style:'appdriven', includePurged:'no'}
         orderBy: Sort order (default: 'lastupdateddate')
         fields: Field selection (default: 'runId')
         return_format: Response format (default: 'summary')
         mcp_server_url: URL of the MCP server (optional, uses MCP_SERVER_URL env var)
     
     Returns:
-        JSON string with integration instances information (raw response from MCP server)
+        JSON string with errored integration instances information (raw response from MCP server)
     """
     if not mcp_server_url:
         mcp_server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:3000")
@@ -101,7 +100,7 @@ def call_mcp_monitoring_instances(
         "id": request_id,
         "method": "tools/call",
         "params": {
-            "name": "monitoringInstances",
+            "name": "monitoringErroredInstances",
             "arguments": {
                 "q": q,
                 "orderBy": orderBy,
@@ -155,6 +154,32 @@ def call_mcp_monitoring_instances(
                                     return text_content
                                 except json.JSONDecodeError:
                                     return json.dumps({"raw": text_content})
+                # Save instance IDs to shared state for other agents (e.g., ResubmitErrorsAgent)
+                try:
+                    instance_ids = []
+                    if isinstance(result, dict):
+                        items = []
+                        if "items" in result:
+                            items = result["items"]
+                        elif "result" in result and "content" in result["result"]:
+                            # Handle nested MCP structure if needed, though usually it's flattened by now
+                            pass
+                        
+                        for item in items:
+                            if "id" in item:
+                                instance_ids.append(item["id"])
+                            elif "instanceId" in item:
+                                instance_ids.append(item["instanceId"])
+                    
+                    if instance_ids:
+                        shared_state_path = Path(__file__).parent.parent / 'shared_state.json'
+                        with open(shared_state_path, 'w') as f:
+                            json.dump({"last_errored_instance_ids": instance_ids}, f)
+                        # print(f"Saved {len(instance_ids)} instance IDs to shared state.")
+                except Exception as e:
+                    # print(f"Warning: Failed to save shared state: {e}")
+                    pass
+
                 return json.dumps(result, indent=2)
             except ValueError:
                 # If not JSON, read as text (SSE format)
@@ -239,33 +264,34 @@ AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-2.5-flash-lite")
 
 # Create the AI Agent using Google ADK
 root_agent = Agent(
-    name="MonitorQueueRequestAgent",
+    name="MonitorErrorsAgent",
     model=AGENT_MODEL,
-    description="OIC monitor queue requests agent that returns pending request count in queue along with details.",
+    description="OIC Monitoring Error Agent responsible for retrieving non-recoverable and recoverable errors.",
     instruction="""
-    You are an OIC monitor queue requests agent that returns pending request count in queue along with details.
+    You are an OIC Monitoring Error Agent responsible for retrieving non-recoverable and recoverable errors.
     
-    When users ask for any requests pending in queue before processing:
+    When users ask for any errored instances:
     
-    1. Call the call_mcp_monitoring_instances tool to query for OIC activity stream instances. The MCP server automatically handles pagination internally (starting with offset=0 and limit=50) and returns all matching instances.
+    1. Call the call_mcp_monitoring_errored_instances tool to query for OIC errored instances. The MCP server automatically handles pagination internally (starting with offset=0 and limit=50) and returns all matching instances.
     
-    2. Use the following parameters in the request:
-       {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
+    2. Construct the query parameters based on the user's request:
+       - Default parameters: {timewindow:'1h', integration-style:'appdriven', includePurged:'no'}
+       - If the user asks for "recoverable" errors, add recoverable:'true'.
+       - If the user asks for "non-recoverable" errors, add recoverable:'false'.
+       - If the user doesn't specify, default to recoverable:'true'.
+       
+       Example query: {timewindow:'1h', recoverable:'true', integration-style:'appdriven', includePurged:'no'}
     
-    3. Filter the response to match instances with:
-       - status: "IN_PROGRESS"
-       - mepType: "ASYNC_ONE_WAY"
-       - dataFetchTime - creationDate > 15 minutes (date format: 2025-11-21T04:33:10.496+0000 GMT)
-    
-    4. Return details in structured HTML format that is readable:
-       - Total count of matching instances
+    3. Return details in structured HTML format that is readable:
+       - Total count of matching errored instances
        - HTML table with the following columns:
          * creationDate (converted to MST timezone)
          * integration name
          * instanceId
-         * tracking variable (name-value pairs, shortened to 200 characters)
+         * error message (shortened if too long)
+         * recoverable (Yes/No)
     
-    6. Format the HTML table with proper styling for readability (use table tags with headers, borders, and appropriate spacing).
+    4. Format the HTML table with proper styling for readability (use table tags with headers, borders, and appropriate spacing).
     
     If the OIC Monitor MCP server is not available:
     1. Use the check_mcp_server_health tool to diagnose the issue
@@ -274,13 +300,13 @@ root_agent = Agent(
     
     Always present the results in clear, structured HTML format for easy reading and analysis.
     """,
-    tools=[call_mcp_monitoring_instances, check_mcp_server_health]
+    tools=[call_mcp_monitoring_errored_instances, check_mcp_server_health]
 )
 
 
 if __name__ == "__main__":
     # Example usage
-    print("MonitorQueueRequestAgent")
+    print("MonitorErrorsAgent")
     print("=" * 50)
     print()
     
@@ -294,8 +320,15 @@ if __name__ == "__main__":
     
     # Example query
     if health.get("status") == "healthy":
-        print("Example: Getting IN_PROGRESS instances from queue...")
-        result = root_agent.run("What integration instances are currently IN_PROGRESS in the queue?")
+        print("Example: Getting recoverable errored instances...")
+        # Use query() instead of run() for ADK agents
+        # Note: The exact method depends on the ADK version, checking common patterns
+        if hasattr(root_agent, 'query'):
+            result = root_agent.query("What recoverable integration instances are currently in ERROR state?")
+        else:
+            # Fallback to __call__ or similar if query/run aren't available directly
+            # For many agent frameworks, the instance itself is callable
+            result = root_agent("What recoverable integration instances are currently in ERROR state?")
         print(result)
     else:
         print("⚠️  OIC Monitor MCP server is not running. Please start it with:")

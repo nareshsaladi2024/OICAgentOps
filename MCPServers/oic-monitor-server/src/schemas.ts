@@ -1,6 +1,6 @@
 export const commonListSchema = {
-    q: { 
-        type: "string", 
+    q: {
+        type: "string",
         description: `Filter parameters using OIC query syntax. Supports multiple filters combined with commas.
         
 Filter options:
@@ -32,21 +32,21 @@ Filter options:
 Example: {timewindow:'1h', status:'FAILED', code:'ERROR', version:'01.00.0000'}`,
         default: "{timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}"
     },
-    orderBy: { 
-        type: "string", 
+    orderBy: {
+        type: "string",
         description: "Sort order. Valid values: 'lastupdateddate', 'creationdate', 'executiontime'. Default: 'lastupdateddate'",
         enum: ["lastupdateddate", "creationdate", "executiontime"],
         default: "lastupdateddate"
     },
-    limit: { 
-        type: "number", 
+    limit: {
+        type: "number",
         description: "Maximum number of items to return per page. Use with offset for pagination.",
         minimum: 1,
         maximum: 1000,
         default: 50
     },
-    offset: { 
-        type: "number", 
+    offset: {
+        type: "number",
         description: "Starting point for pagination (0-based index). Use with limit for pagination. Example: offset=3&limit=16 returns items starting at 4th position.",
         minimum: 0,
         default: 0
@@ -78,8 +78,8 @@ export const monitoringInstancesSchema = {
 export const monitoringInstanceDetailsSchema = {
     type: "object",
     properties: {
-        id: { 
-            type: "string", 
+        id: {
+            type: "string",
             description: "The unique identifier (instanceId) of the integration instance. This is the instance ID returned from the instances list endpoint.",
             minLength: 1
         }
@@ -91,8 +91,8 @@ export const monitoringIntegrationsSchema = {
     type: "object",
     properties: {
         ...commonListSchema,
-        return: { 
-            type: "string", 
+        return: {
+            type: "string",
             description: "Type of records to return. Controls the response data format. Valid values: 'all' (all records), 'active' (active integrations only), 'inactive' (inactive integrations only).",
             enum: ["all", "active", "inactive"],
             default: "all"
@@ -103,8 +103,8 @@ export const monitoringIntegrationsSchema = {
 export const monitoringIntegrationDetailsSchema = {
     type: "object",
     properties: {
-        id: { 
-            type: "string", 
+        id: {
+            type: "string",
             description: "The unique identifier (integrationId) of the integration. This can be the integration code or integration ID.",
             minLength: 1
         }
@@ -115,13 +115,13 @@ export const monitoringIntegrationDetailsSchema = {
 export const monitoringAgentGroupsSchema = {
     type: "object",
     properties: {
-        q: { 
-            type: "string", 
+        q: {
+            type: "string",
             description: "Filter query string to filter results by agent group name. Supports partial matching and search patterns.",
             default: ""
         },
-        orderBy: { 
-            type: "string", 
+        orderBy: {
+            type: "string",
             description: "Sort order for results. Valid values: 'name' (by agent group name), 'lastupdatedtime' (by last updated time). Prefix with '-' for descending order (e.g., '-name').",
             default: "name"
         }
@@ -131,8 +131,8 @@ export const monitoringAgentGroupsSchema = {
 export const monitoringAgentGroupDetailsSchema = {
     type: "object",
     properties: {
-        id: { 
-            type: "string", 
+        id: {
+            type: "string",
             description: "The unique identifier of the agent group. This is the agent group ID returned from the agent groups list endpoint.",
             minLength: 1
         }
@@ -143,8 +143,8 @@ export const monitoringAgentGroupDetailsSchema = {
 export const monitoringAgentsInGroupSchema = {
     type: "object",
     properties: {
-        id: { 
-            type: "string", 
+        id: {
+            type: "string",
             description: "The unique identifier of the agent group to retrieve agents for. This is the agent group ID returned from the agent groups list endpoint.",
             minLength: 1
         }
@@ -175,8 +175,8 @@ export const monitoringScheduledRunsSchema = {
 export const monitoringActivityStreamSchema = {
     type: "object",
     properties: {
-        id: { 
-            type: "string", 
+        id: {
+            type: "string",
             description: "The unique identifier (instanceId) of the integration instance to retrieve the activity stream for. This is the instance ID returned from the instances list endpoint.",
             minLength: 1
         }
@@ -187,8 +187,8 @@ export const monitoringActivityStreamSchema = {
 export const monitoringLogsSchema = {
     type: "object",
     properties: {
-        id: { 
-            type: "string", 
+        id: {
+            type: "string",
             description: "The unique identifier (instanceId) of the integration instance to retrieve logs for. This is the instance ID returned from the instances list endpoint.",
             minLength: 1
         }
@@ -242,7 +242,12 @@ export const monitoringResubmitErroredInstanceSchema = {
 export const monitoringResubmitErroredInstancesSchema = {
     type: "object",
     properties: {
-        ...commonListSchema
+        ...commonListSchema,
+        instanceIds: {
+            type: "array",
+            items: { type: "string" },
+            description: "Array of instance IDs to resubmit. If provided, these specific instances will be resubmitted."
+        }
     }
 };
 

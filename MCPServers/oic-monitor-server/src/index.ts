@@ -259,6 +259,7 @@ class OicMonitorServer {
                 params.offset = offset;
 
                 try {
+                    console.log(`[Pagination] Fetching: ${url} with params:`, JSON.stringify(params, null, 2));
                     const response = await axios.get<OicResponse>(url, {
                         headers: {
                             'Authorization': `Bearer ${currentToken}`,
@@ -268,6 +269,7 @@ class OicMonitorServer {
                     });
 
                     const data = response.data;
+                    console.log(`[Pagination] Response: totalRecordsCount=${data.totalRecordsCount}, items.length=${data.items?.length || 0}`);
                     const items = data.items || [];
                     batchItems = batchItems.concat(items);
 
@@ -447,7 +449,7 @@ class OicMonitorServer {
             // @ts-ignore - start might be protected or not in type definition depending on SDK version
             if (streamableHttpTransport.start) {
                 console.log("Explicitly starting StreamableHTTP transport...");
-                await streamableHttpTransport.start(this.server);
+                await streamableHttpTransport.start();
                 console.log("Explicitly started StreamableHTTP transport.");
             }
         } catch (e) {

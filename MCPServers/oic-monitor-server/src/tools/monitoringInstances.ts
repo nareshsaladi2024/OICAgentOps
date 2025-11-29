@@ -31,8 +31,8 @@ export const monitoringInstancesTool: ToolDefinition = {
             orderBy: "lastupdateddate",
             limit: 50,
             offset: 0,
-            groupBy: "integration",
-            q: `{timewindow:'${duration}', status:'${status}', integration-style:'appdriven', includePurged:'yes'}`,
+            // Removed groupBy to get individual items instead of aggregated data
+            q: `{timewindow:'${duration}', status:'${status}'}`,
             integrationInstance: envConfig.integrationInstance,
         };
 

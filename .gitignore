@@ -36,3 +36,5 @@ Thumbs.db
 .idea/
 *.iml
 
+service_account.json
+*.json.bak

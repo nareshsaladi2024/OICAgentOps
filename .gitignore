@@ -38,3 +38,5 @@ Thumbs.db
 
 service_account.json
 *.json.bak
+.env.*
+.env

@@ -1,0 +1,74 @@
+graph TB
+    subgraph "Capstone Project: OICAgentOps"
+        direction TB
+        
+        subgraph "AI Agents Layer"
+            CA[CoordinatorAgent<br/>Orchestrates monitoring tasks]
+            MQA[MonitorQueueRequestAgent<br/>Monitors instance queue]
+            MEA[MonitorErrorsAgent<br/>Tracks integration errors]
+            RJA[RecoveryJobAgent<br/>Manages error recovery]
+            REA[ResubmitErrorsAgent<br/>Resubmits failed instances]
+        end
+        
+        subgraph "MCP Server Layer"
+            MCP[OIC Monitor MCP Server<br/>TypeScript/Express]
+            
+            subgraph "MCP Tools"
+                T1[monitoringInstances]
+                T2[monitoringErroredInstances]
+                T3[monitoringErrorRecoveryJobs]
+                T4[monitoringIntegrations]
+                T5[monitoringActivityStream]
+                T6[+ 15 more tools...]
+            end
+        end
+        
+        subgraph "Transport Layer"
+            SSE[SSE Transport<br/>/sse + /messages]
+            STREAM[Streamable HTTP<br/>/stream]
+        end
+        
+        subgraph "Oracle Integration Cloud"
+            OIC[OIC REST API<br/>Multiple Environments]
+            DEV[dev]
+            QA[qa3]
+            PROD1[prod1]
+            PROD3[prod3]
+        end
+    end
+    
+    CA --> MCP
+    MQA --> MCP
+    MEA --> MCP
+    RJA --> MCP
+    REA --> MCP
+    
+    MCP --> T1
+    MCP --> T2
+    MCP --> T3
+    MCP --> T4
+    MCP --> T5
+    MCP --> T6
+    
+    MCP --> SSE
+    MCP --> STREAM
+    
+    SSE --> OIC
+    STREAM --> OIC
+    
+    OIC --> DEV
+    OIC --> QA
+    OIC --> PROD1
+    OIC --> PROD3
+    
+    classDef agents fill:#e3f2fd,stroke:#1976d2,stroke-width:2px;
+    classDef mcp fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
+    classDef tools fill:#fce4ec,stroke:#c2185b;
+    classDef transport fill:#e8f5e9,stroke:#388e3c;
+    classDef oracle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
+    
+    class CA,MQA,MEA,RJA,REA agents;
+    class MCP mcp;
+    class T1,T2,T3,T4,T5,T6 tools;
+    class SSE,STREAM transport;
+    class OIC,DEV,QA,PROD1,PROD3 oracle;

@@ -1,0 +1,135 @@
+services:
+  # MCP Server Service (using port 3000 to avoid conflict with kaggle-5-day-agents on 8080)
+  mcp-server:
+    build:
+      context: .
+      dockerfile: MCPServers/Dockerfile
+    image: oic-mcp-server:latest
+    container_name: oic-mcp-server
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      # Add OIC-specific environment variables if needed
+      # - OIC_BASE_URL=${OIC_BASE_URL}
+      # - OIC_USERNAME=${OIC_USERNAME}
+      # - OIC_PASSWORD=${OIC_PASSWORD}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Coordinator Agent
+  coordinator-agent:
+    build:
+      context: .
+      dockerfile: Agents/Dockerfile
+    image: oic-agents:latest
+    container_name: oic-coordinator-agent
+    environment:
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-aiagent-capstoneproject}
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-us-central1}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service_account.json}
+      - MCP_SERVER_URL=http://mcp-server:3000
+      - AGENT_MODEL=${AGENT_MODEL:-gemini-2.5-flash-lite}
+      - ADK_LOG_LEVEL=${ADK_LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./Agents/CoordinatorAgent/.env:/app/CoordinatorAgent/.env:ro
+      - ./service_account.json:/app/service_account.json:ro
+    depends_on:
+      - mcp-server
+    command: ["python", "CoordinatorAgent/agent.py"]
+    restart: unless-stopped
+
+  # Monitor Errors Agent
+  monitor-errors-agent:
+    build:
+      context: .
+      dockerfile: Agents/Dockerfile
+    image: oic-agents:latest
+    container_name: oic-monitor-errors-agent
+    environment:
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-aiagent-capstoneproject}
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-us-central1}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service_account.json}
+      - MCP_SERVER_URL=http://mcp-server:3000
+      - AGENT_MODEL=${AGENT_MODEL:-gemini-2.5-flash-lite}
+      - ADK_LOG_LEVEL=${ADK_LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./Agents/MonitorErrorsAgent/.env:/app/MonitorErrorsAgent/.env:ro
+      - ./service_account.json:/app/service_account.json:ro
+    depends_on:
+      - mcp-server
+    command: ["python", "MonitorErrorsAgent/agent.py"]
+    restart: unless-stopped
+
+  # Monitor Queue Request Agent
+  monitor-queue-agent:
+    build:
+      context: .
+      dockerfile: Agents/Dockerfile
+    image: oic-agents:latest
+    container_name: oic-monitor-queue-agent
+    environment:
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-aiagent-capstoneproject}
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-us-central1}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service_account.json}
+      - MCP_SERVER_URL=http://mcp-server:3000
+      - AGENT_MODEL=${AGENT_MODEL:-gemini-2.5-flash-lite}
+      - ADK_LOG_LEVEL=${ADK_LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./Agents/MonitorQueueRequestAgent/.env:/app/MonitorQueueRequestAgent/.env:ro
+      - ./service_account.json:/app/service_account.json:ro
+    depends_on:
+      - mcp-server
+    command: ["python", "MonitorQueueRequestAgent/agent.py"]
+    restart: unless-stopped
+
+  # Recovery Job Agent
+  recovery-job-agent:
+    build:
+      context: .
+      dockerfile: Agents/Dockerfile
+    image: oic-agents:latest
+    container_name: oic-recovery-job-agent
+    environment:
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-aiagent-capstoneproject}
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-us-central1}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service_account.json}
+      - MCP_SERVER_URL=http://mcp-server:3000
+      - AGENT_MODEL=${AGENT_MODEL:-gemini-2.5-flash-lite}
+      - ADK_LOG_LEVEL=${ADK_LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./Agents/RecoveryJobAgent/.env:/app/RecoveryJobAgent/.env:ro
+      - ./service_account.json:/app/service_account.json:ro
+    depends_on:
+      - mcp-server
+    command: ["python", "RecoveryJobAgent/agent.py"]
+    restart: unless-stopped
+
+  # Resubmit Errors Agent
+  resubmit-errors-agent:
+    build:
+      context: .
+      dockerfile: Agents/Dockerfile
+    image: oic-agents:latest
+    container_name: oic-resubmit-errors-agent
+    environment:
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-aiagent-capstoneproject}
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-us-central1}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/service_account.json}
+      - MCP_SERVER_URL=http://mcp-server:3000
+      - AGENT_MODEL=${AGENT_MODEL:-gemini-2.5-flash-lite}
+      - ADK_LOG_LEVEL=${ADK_LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./Agents/ResubmitErrorsAgent/.env:/app/ResubmitErrorsAgent/.env:ro
+      - ./service_account.json:/app/service_account.json:ro
+    depends_on:
+      - mcp-server
+    command: ["python", "ResubmitErrorsAgent/agent.py"]
+    restart: unless-stopped
+

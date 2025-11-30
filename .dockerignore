@@ -1,0 +1,71 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+.yarn
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# Environment files (will be mounted as volumes)
+.env
+.env.local
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+test/
+*.test.*
+*_test.py
+
+# Deployment scripts
+deploy-*.ps1
+*.ps1
+
+# Postman
+postman/
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Diagrams
+*.mmd
+
+# Cache
+.cache/
+

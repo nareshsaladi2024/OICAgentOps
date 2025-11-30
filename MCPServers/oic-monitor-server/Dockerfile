@@ -10,15 +10,19 @@ RUN apt-get update && apt-get install -y \
 
 # Copy package files
 COPY package*.json ./
+COPY tsconfig.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all dependencies (including devDependencies for TypeScript build)
+RUN npm ci
 
 # Copy source files
-COPY . .
+COPY src/ ./src/
 
 # Build TypeScript
-RUN npm run build || npx tsc
+RUN npm run build
+
+# Remove devDependencies after build to reduce image size
+RUN npm prune --production
 
 # Cloud Run uses PORT environment variable (defaults to 8080)
 # The server reads PORT from environment

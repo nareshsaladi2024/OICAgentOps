@@ -11,12 +11,29 @@ const projectRoot = path.resolve(__dirname, '../../');
 const envPath = path.join(projectRoot, '.env');
 
 // Load .env file from project root
-const result = dotenv.config({ path: envPath });
-if (result.error) {
-    console.warn(`Warning: Could not load .env file from ${envPath}`);
-    console.warn(`Error: ${result.error.message}`);
-} else if (result.parsed) {
-    console.log(`✓ Loaded .env file from: ${envPath}`);
+// Try multiple paths to ensure we find the .env file
+const possiblePaths = [
+    envPath,  // Expected path (project root)
+    path.join(process.cwd(), '.env'),  // Current working directory
+    path.join(__dirname, '../../.env'),  // Relative to compiled location
+    path.join(__dirname, '../../../.env'),  // Alternative relative path
+];
+
+let envLoaded = false;
+for (const tryPath of possiblePaths) {
+    const result = dotenv.config({ path: tryPath });
+    if (!result.error && result.parsed) {
+        console.log(`✓ Loaded .env file from: ${tryPath}`);
+        envLoaded = true;
+        break;
+    }
+}
+
+if (!envLoaded) {
+    console.warn(`Warning: Could not load .env file from any of these paths:`);
+    possiblePaths.forEach(p => console.warn(`  - ${p}`));
+    // Try loading from process.cwd() as fallback
+    dotenv.config(); // This loads .env from current working directory
 }
 
 // Valid environments

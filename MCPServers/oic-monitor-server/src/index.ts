@@ -48,7 +48,18 @@ class OicMonitorServer {
         );
 
         this.app = express();
-        this.app.use(cors());
+        
+        // Configure CORS for MCP Inspector and other clients
+        this.app.use(cors({
+            origin: '*', // Allow all origins (can be restricted in production)
+            methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+            exposedHeaders: ['Content-Type', 'Cache-Control'],
+            credentials: false
+        }));
+        
+        // Parse JSON bodies
+        this.app.use(express.json());
 
         this.setupHandlers();
 
@@ -346,7 +357,8 @@ class OicMonitorServer {
 
     async run() {
         let sseTransport: SSEServerTransport;
-        let streamableHttpTransport: StreamableHTTPServerTransport;
+        // Streamable HTTP transport - will be created per-request for better compatibility
+        let streamableHttpTransport: StreamableHTTPServerTransport | null = null;
 
         // Health check endpoint for Cloud Run and Docker
         this.app.get("/health", (req, res) => {
@@ -426,12 +438,13 @@ class OicMonitorServer {
         // Streamable HTTP Transport (New)
         // ============================================
         // Create Streamable HTTP transport (stateful mode with session management)
+        // Initialize transport once and reuse for all requests
         streamableHttpTransport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => {
                 // Generate a secure session ID
                 return randomUUID();
             },
-            enableJsonResponse: false, // Use SSE streaming by default
+            enableJsonResponse: true, // Enable JSON responses for MCP Inspector compatibility
             onsessioninitialized: (sessionId: string) => {
                 console.log(`[StreamableHTTP] Session initialized: ${sessionId}`);
             },
@@ -441,20 +454,8 @@ class OicMonitorServer {
         });
 
         // Connect server to Streamable HTTP transport
-        // Note: connect() will automatically start the transport, so we don't call start() explicitly
         console.log("Connecting to StreamableHTTP transport...");
         await this.server.connect(streamableHttpTransport);
-        // Explicitly start the transport if connect didn't do it (workaround)
-        try {
-            // @ts-ignore - start might be protected or not in type definition depending on SDK version
-            if (streamableHttpTransport.start) {
-                console.log("Explicitly starting StreamableHTTP transport...");
-                await streamableHttpTransport.start();
-                console.log("Explicitly started StreamableHTTP transport.");
-            }
-        } catch (e) {
-            console.log("Error starting transport (might be already started):", e);
-        }
         console.log("Connected to StreamableHTTP transport.");
 
         // Handle all HTTP methods for Streamable HTTP transport
@@ -462,13 +463,43 @@ class OicMonitorServer {
         // POST /stream - Send client-to-server messages
         // DELETE /stream - Close session
         this.app.all("/stream", async (req, res) => {
+            // Set CORS headers explicitly for MCP Inspector
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+            res.setHeader('Access-Control-Expose-Headers', 'Content-Type');
+            
+            // Handle OPTIONS preflight
+            if (req.method === 'OPTIONS') {
+                res.status(200).end();
+                return;
+            }
+            
+            // Ensure transport is initialized
+            if (!streamableHttpTransport) {
+                console.error("[StreamableHTTP] Transport not initialized");
+                res.status(500).json({ error: "Streamable HTTP transport not initialized" });
+                return;
+            }
+            
             // Parse request body if it's a POST request
             let parsedBody = undefined;
             if (req.method === 'POST' && req.body) {
                 parsedBody = req.body;
             }
 
-            await streamableHttpTransport.handleRequest(req, res, parsedBody);
+            try {
+                console.log(`[StreamableHTTP] Handling ${req.method} request to /stream`);
+                await streamableHttpTransport.handleRequest(req, res, parsedBody);
+            } catch (error: any) {
+                console.error(`[StreamableHTTP] Error handling request:`, error);
+                if (!res.headersSent) {
+                    res.status(500).json({ 
+                        error: error.message || 'Internal server error',
+                        details: error.stack 
+                    });
+                }
+            }
         });
 
         const port = process.env.PORT || 3000;

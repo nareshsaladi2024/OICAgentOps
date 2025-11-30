@@ -79,26 +79,39 @@ if (Test-Path $envFile) {
     Write-Host ""
 }
 
-# Prepare environment variables
-$envVars = @()
-$requiredVars = @("OIC_CLIENT_ID", "OIC_CLIENT_SECRET", "OIC_TOKEN_URL", "OIC_API_BASE_URL", "OIC_INTEGRATION_INSTANCE")
-$optionalVars = @("OIC_SCOPE")
+# Prepare environment variables from .env file
+# Load all environment-specific variables (OIC_CLIENT_ID_DEV, OIC_CLIENT_ID_PROD1, etc.)
+$envVarsList = @()
+$environments = @("dev", "qa3", "prod1", "prod3")
+$baseVars = @("OIC_CLIENT_ID", "OIC_CLIENT_SECRET", "OIC_TOKEN_URL", "OIC_API_BASE_URL", "OIC_SCOPE", "OIC_INTEGRATION_INSTANCE")
 
-foreach ($var in $requiredVars) {
-    $value = [Environment]::GetEnvironmentVariable($var, "Process")
-    if ($value) {
-        $envVars += "--set-env-vars=$var=$value"
-    } else {
-        Write-Host "WARNING: Required environment variable $var is not set" -ForegroundColor Yellow
+# Load all variables from .env file
+if (Test-Path $envFile) {
+    Get-Content $envFile | ForEach-Object {
+        if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
+            $key = $matches[1].Trim()
+            $value = $matches[2].Trim()
+            # Remove quotes if present
+            if ($value -match '^["''](.*)["'']$') {
+                $value = $matches[1]
+            }
+            # Add all OIC-related variables to Cloud Run
+            if ($key -match '^OIC_') {
+                $envVarsList += "$key=$value"
+            }
+        }
     }
+    Write-Host "Loaded $($envVarsList.Count) environment variables from .env" -ForegroundColor Green
+} else {
+    Write-Host "WARNING: .env file not found. No environment variables will be set." -ForegroundColor Yellow
+    Write-Host "Create .env file with OIC credentials using: .\setup-env.ps1" -ForegroundColor Yellow
 }
 
-foreach ($var in $optionalVars) {
-    $value = [Environment]::GetEnvironmentVariable($var, "Process")
-    if ($value) {
-        $envVars += "--set-env-vars=$var=$value"
-    }
+# Also check for PORT and NODE_ENV
+if ([Environment]::GetEnvironmentVariable("PORT", "Process")) {
+    $envVarsList += "PORT=$([Environment]::GetEnvironmentVariable('PORT', 'Process'))"
 }
+$envVarsList += "NODE_ENV=production"
 
 # Build the container image
 Write-Host "Building container image..." -ForegroundColor Cyan
@@ -133,8 +146,10 @@ if ($ServiceAccount) {
     $deployCmd += " --service-account $ServiceAccount"
 }
 
-if ($envVars.Count -gt 0) {
-    $deployCmd += " " + ($envVars -join " ")
+if ($envVarsList.Count -gt 0) {
+    $envVarsString = $envVarsList -join ","
+    $deployCmd += " --set-env-vars `"$envVarsString`""
+    Write-Host "Setting $($envVarsList.Count) environment variables" -ForegroundColor Green
 }
 
 Invoke-Expression $deployCmd

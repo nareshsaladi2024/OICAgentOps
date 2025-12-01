@@ -1,9 +1,8 @@
 import axios from "axios";
 
 import { monitoringDiscardErroredInstanceSchema } from "../schemas.js";
+import { getConfigForEnvironment } from "../config.js";
 import { ToolDefinition, ToolContext } from "./types.js";
-
-const defaultEnv = "dev";
 
 export const monitoringDiscardErroredInstanceTool: ToolDefinition = {
     name: "monitoringDiscardErroredInstance",
@@ -14,16 +13,23 @@ export const monitoringDiscardErroredInstanceTool: ToolDefinition = {
         if (!id) {
             throw new Error("Instance id (id) is required");
         }
+        if (!params.environment) {
+            throw new Error("Environment parameter is required. Valid values: 'dev', 'qa3', 'prod1', 'prod3'");
+        }
 
-        const token = await context.getAccessToken(context.defaultConfig, false, defaultEnv);
+        const environment = params.environment;
+        const envConfig = getConfigForEnvironment(environment);
+        const token = await context.getAccessToken(envConfig, false, environment);
+        
         const requestParams = {
             ...params,
-            integrationInstance: context.defaultConfig.integrationInstance,
+            integrationInstance: envConfig.integrationInstance,
         };
         delete requestParams.id;
+        delete requestParams.environment;
 
         const response = await axios.post(
-            `${context.defaultConfig.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/${id}/discard`,
+            `${envConfig.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/${id}/discard`,
             null,
             {
                 headers: { Authorization: `Bearer ${token}` },

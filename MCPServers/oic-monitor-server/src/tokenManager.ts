@@ -5,14 +5,18 @@ import os from 'os';
 interface TokenData {
     accessToken: string;
     expiry: number;
+    environment?: string; // Track which environment this token is for
 }
 
 export class TokenManager {
     private tokenFilePath: string;
+    private environment: string;
 
-    constructor() {
-        // Store token in a hidden file in the user's home directory
-        this.tokenFilePath = path.join(os.homedir(), '.oic_mcp_token.json');
+    constructor(environment: string = 'dev') {
+        this.environment = environment;
+        // Store token in environment-specific files
+        // e.g., .oic_mcp_token_dev.json, .oic_mcp_token_prod3.json
+        this.tokenFilePath = path.join(os.homedir(), `.oic_mcp_token_${environment}.json`);
     }
 
     public getToken(): string | null {
@@ -62,14 +66,15 @@ export class TokenManager {
             const expiry = Date.now() + (expiresInSeconds * 1000) - (bufferSeconds * 1000);
             const tokenData: TokenData = {
                 accessToken,
-                expiry
+                expiry,
+                environment: this.environment // Store environment with token
             };
             fs.writeFileSync(this.tokenFilePath, JSON.stringify(tokenData), 'utf-8');
             const minutes = Math.floor(cachedDuration / 60);
             const seconds = cachedDuration % 60;
-            console.log(`Token cached successfully. Will be valid for ${minutes}m ${seconds}s (refreshes ${bufferSeconds}s before API expiry)`);
+            console.log(`Token cached successfully for ${this.environment}. Will be valid for ${minutes}m ${seconds}s (refreshes ${bufferSeconds}s before API expiry)`);
         } catch (error) {
-            console.error("Error saving token file:", error);
+            console.error(`Error saving token file for ${this.environment}:`, error);
         }
     }
 

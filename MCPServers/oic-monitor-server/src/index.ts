@@ -7,7 +7,7 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 
 import cors from "cors";
-import { CONFIG } from "./config.js";
+import { CONFIG, getConfigForEnvironment } from "./config.js";
 import { TokenManager } from "./tokenManager.js";
 import { toolDefinitions, getToolByName } from "./tools/index.js";
 import { ToolContext } from "./tools/types.js";
@@ -18,15 +18,17 @@ class OicMonitorServer {
     private server: Server;
     private tokenManagers: Map<string, TokenManager>;
     private app: express.Application;
+    private streamableServerConnected: boolean = false;
 
     constructor() {
         // Use a map to store token managers per environment
         this.tokenManagers = new Map();
 
         // Initialize token managers for each environment
+        // Each environment gets its own TokenManager instance with separate token storage
         const environments = ['dev', 'qa3', 'prod1', 'prod3'];
         environments.forEach(env => {
-            this.tokenManagers.set(env, new TokenManager());
+            this.tokenManagers.set(env, new TokenManager(env));
         });
 
         // Clear any existing token files on server startup
@@ -58,8 +60,28 @@ class OicMonitorServer {
             credentials: false
         }));
         
-        // Parse JSON bodies
-        this.app.use(express.json());
+        // CRITICAL: Register /messages POST handler BEFORE any body parsing middleware
+        // This ensures the SSE transport can read the raw request stream
+        // We'll set this up in run() method after transports are initialized
+        
+        // Parse JSON bodies for all endpoints EXCEPT /messages and /stream
+        // Both /messages (SSE) and /stream (Streamable HTTP) need raw body streams
+        this.app.use((req, res, next) => {
+            // Skip body parsing for endpoints that need raw streams
+            // Check both path and URL to handle query parameters
+            const isStreamEndpoint = req.path === '/messages' || 
+                                     req.path === '/stream' ||
+                                     req.url?.startsWith('/messages') ||
+                                     req.url?.startsWith('/stream') ||
+                                     (req.method === 'POST' && (req.url?.includes('/messages') || req.url?.includes('/stream')));
+            
+            if (isStreamEndpoint) {
+                // Skip body parsing entirely - let transports read raw stream
+                return next();
+            }
+            // For all other endpoints, parse JSON normally
+            express.json()(req, res, next);
+        });
 
         this.setupHandlers();
 
@@ -141,6 +163,10 @@ class OicMonitorServer {
                 throw new Error(`Unknown tool: ${name}`);
             }
 
+            // Determine environment from params if available (for tools that support it)
+            const environment = (params as any)?.environment || 'dev';
+            const envConfig = (params as any)?.environment ? getConfigForEnvironment(environment) : CONFIG;
+            
             const context: ToolContext = {
                 defaultConfig: CONFIG,
                 getAccessToken: this.getAccessToken.bind(this),
@@ -204,7 +230,7 @@ class OicMonitorServer {
         });
     }
 
-    private async fetchSingle(url: string, token: string, params: any, retryOn401: boolean = true): Promise<any> {
+    private async fetchSingle(url: string, token: string, params: any, retryOn401: boolean = true, environment: string = 'dev', envConfig?: any): Promise<any> {
         try {
             const response = await axios.get(url, {
                 headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
@@ -212,21 +238,21 @@ class OicMonitorServer {
             });
             return response.data;
         } catch (error: any) {
-            // If we get a 401 and haven't retried yet, refresh token and retry
+            // If we get a 401 and haven't retried yet, refresh token for the specific environment and retry
             if (error.response?.status === 401 && retryOn401) {
-                console.log("Received 401, refreshing token and retrying...");
-                // Note: This assumes default config, may need to pass envConfig for proper environment handling
-                const env = 'dev';
-                const tokenManager = this.tokenManagers.get(env) || this.tokenManagers.get('dev')!;
+                console.log(`Received 401 for ${environment}, refreshing token and retrying...`);
+                const tokenManager = this.tokenManagers.get(environment) || this.tokenManagers.get('dev')!;
                 tokenManager.clearToken();
-                const newToken = await this.getAccessToken(CONFIG, true, 'dev');
-                return this.fetchSingle(url, newToken, params, false);
+                // Use the provided envConfig or get it for the environment
+                const config = envConfig || getConfigForEnvironment(environment);
+                const newToken = await this.getAccessToken(config, true, environment);
+                return this.fetchSingle(url, newToken, params, false, environment, envConfig);
             }
             throw error;
         }
     }
 
-    private async fetchWithPagination(url: string, token: string, initialParams: any, retryOn401: boolean = true) {
+    private async fetchWithPagination(url: string, token: string, initialParams: any, retryOn401: boolean = true, environment: string = 'dev', envConfig?: any) {
         const limit = initialParams.limit || 50;
         let allItems: any[] = [];
         let totalRecords = -1;
@@ -303,13 +329,14 @@ class OicMonitorServer {
                         break;
                     }
                 } catch (error: any) {
-                    // If we get a 401 and haven't retried yet, refresh token and retry
+                    // If we get a 401 and haven't retried yet, refresh token for the specific environment and retry
                     if (error.response?.status === 401 && retryOn401) {
-                        console.log("Received 401, refreshing token and retrying...");
-                        const env = 'dev';
-                        const tokenManager = this.tokenManagers.get(env) || this.tokenManagers.get('dev')!;
+                        console.log(`Received 401 for ${environment}, refreshing token and retrying...`);
+                        const tokenManager = this.tokenManagers.get(environment) || this.tokenManagers.get('dev')!;
                         tokenManager.clearToken();
-                        currentToken = await this.getAccessToken(CONFIG, true, 'dev');
+                        // Use the provided envConfig or get it for the environment
+                        const config = envConfig || getConfigForEnvironment(environment);
+                        currentToken = await this.getAccessToken(config, true, environment);
                         // Retry the same request with new token
                         continue;
                     }
@@ -437,26 +464,16 @@ class OicMonitorServer {
         // ============================================
         // Streamable HTTP Transport (New)
         // ============================================
-        // Create Streamable HTTP transport (stateful mode with session management)
-        // Initialize transport once and reuse for all requests
+        // Create Streamable HTTP transport
+        // Using stateless mode (sessionIdGenerator: undefined) to avoid "Server already initialized" errors
+        // In stateless mode, we create the transport but DON'T connect the server at startup.
+        // Instead, handleRequest will handle the connection per-request.
         streamableHttpTransport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => {
-                // Generate a secure session ID
-                return randomUUID();
-            },
+            sessionIdGenerator: undefined, // Stateless mode - no session management
             enableJsonResponse: true, // Enable JSON responses for MCP Inspector compatibility
-            onsessioninitialized: (sessionId: string) => {
-                console.log(`[StreamableHTTP] Session initialized: ${sessionId}`);
-            },
-            onsessionclosed: (sessionId: string) => {
-                console.log(`[StreamableHTTP] Session closed: ${sessionId}`);
-            }
         });
-
-        // Connect server to Streamable HTTP transport
-        console.log("Connecting to StreamableHTTP transport...");
-        await this.server.connect(streamableHttpTransport);
-        console.log("Connected to StreamableHTTP transport.");
+        
+        console.log("[StreamableHTTP] Transport created (stateless mode, will connect per-request).");
 
         // Handle all HTTP methods for Streamable HTTP transport
         // GET /stream - Establish SSE stream (for server-to-client messages)
@@ -481,23 +498,54 @@ class OicMonitorServer {
                 res.status(500).json({ error: "Streamable HTTP transport not initialized" });
                 return;
             }
-            
-            // Parse request body if it's a POST request
-            let parsedBody = undefined;
-            if (req.method === 'POST' && req.body) {
-                parsedBody = req.body;
-            }
 
             try {
                 console.log(`[StreamableHTTP] Handling ${req.method} request to /stream`);
-                await streamableHttpTransport.handleRequest(req, res, parsedBody);
+                
+                // In stateless mode, we need to connect the server to the transport per-request
+                // This ensures each request gets a fresh connection without conflicts
+                // Check if server is already connected to avoid "already initialized" errors
+                if (!this.streamableServerConnected) {
+                    try {
+                        await this.server.connect(streamableHttpTransport);
+                        this.streamableServerConnected = true;
+                        console.log("[StreamableHTTP] Server connected to transport for this request.");
+                    } catch (connectError: any) {
+                        // If already connected, that's fine - continue
+                        if (connectError.message?.includes('already') || 
+                            connectError.message?.includes('initialized') ||
+                            connectError.message?.includes('Server already')) {
+                            this.streamableServerConnected = true;
+                            console.log("[StreamableHTTP] Server already connected, continuing.");
+                        } else {
+                            throw connectError;
+                        }
+                    }
+                }
+                
+                // The transport's handleRequest will:
+                // 1. Read the raw request body (if POST)
+                // 2. Parse JSON internally
+                // 3. Route requests to the connected server
+                await streamableHttpTransport.handleRequest(req, res);
+                
+                console.log(`[StreamableHTTP] Request handled successfully`);
             } catch (error: any) {
                 console.error(`[StreamableHTTP] Error handling request:`, error);
+                console.error(`[StreamableHTTP] Error stack:`, error.stack);
+                
                 if (!res.headersSent) {
                     res.status(500).json({ 
-                        error: error.message || 'Internal server error',
-                        details: error.stack 
+                        jsonrpc: "2.0",
+                        error: {
+                            code: -32000,
+                            message: error.message || 'Internal server error',
+                            data: error.stack 
+                        },
+                        id: null
                     });
+                } else {
+                    console.error(`[StreamableHTTP] Response already sent, cannot send error response`);
                 }
             }
         });

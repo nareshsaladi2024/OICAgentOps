@@ -1,10 +1,16 @@
 {
-  "agent_engine": {
-    "name": "MonitorQueueRequestAgent",
-    "display_name": "Monitor Queue Request Agent",
-    "description": "Monitors integration instances in the queue by retrieving IN_PROGRESS instances from Oracle Integration Cloud",
-    "model": "gemini-2.5-flash-lite",
-    "region": "us-central1"
-  }
+    "agent_engine":  {
+                         "name":  "MonitorQueueRequestAgent",
+                         "display_name":  "Monitor Queue Request Agent",
+                         "description":  "Monitors integration instances in the queue by retrieving IN_PROGRESS instances from Oracle Integration Cloud",
+                         "model":  "gemini-2.5-flash-lite",
+                         "region":  "us-central1"
+                     },
+    "deployment_spec":  {
+                            "env":  {
+                                        "GOOGLE_CLOUD_LOCATION":  "us-east4",
+                                        "GOOGLE_CLOUD_PROJECT":  "aiagent-capstoneproject",
+                                        "MCP_SERVER_URL":  "https://oic-monitor-server-1276251306.us-central1.run.app/"
+                                    }
+                        }
 }
-

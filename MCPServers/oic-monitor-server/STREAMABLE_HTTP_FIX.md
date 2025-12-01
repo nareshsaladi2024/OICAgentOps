@@ -108,3 +108,5 @@ Both transports are implemented:
 
 The server is configured correctly. The issue is with MCP Inspector's handling of streamable HTTP transport, not the server implementation.
 
+
+

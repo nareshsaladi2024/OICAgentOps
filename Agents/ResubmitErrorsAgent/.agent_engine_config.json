@@ -1,0 +1,9 @@
+{
+    "deployment_spec":  {
+                            "env":  {
+                                        "GOOGLE_CLOUD_LOCATION":  "us-east4",
+                                        "GOOGLE_CLOUD_PROJECT":  "aiagent-capstoneproject",
+                                        "MCP_SERVER_URL":  "https://oic-monitor-server-1276251306.us-central1.run.app/"
+                                    }
+                        }
+}

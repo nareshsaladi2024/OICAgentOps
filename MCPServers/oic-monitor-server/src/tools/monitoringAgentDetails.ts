@@ -1,4 +1,5 @@
 import { monitoringAgentDetailsSchema } from "../schemas.js";
+import { getConfigForEnvironment } from "../config.js";
 import { ToolDefinition, ToolContext } from "./types.js";
 
 export const monitoringAgentDetailsTool: ToolDefinition = {
@@ -15,19 +16,29 @@ export const monitoringAgentDetailsTool: ToolDefinition = {
         if (!key) {
             throw new Error("Agent key (key) is required");
         }
+        if (!params.environment) {
+            throw new Error("Environment parameter is required. Valid values: 'dev', 'qa3', 'prod1', 'prod3'");
+        }
 
-        const token = await context.getAccessToken(context.defaultConfig, false, "dev");
+        const environment = params.environment;
+        const envConfig = getConfigForEnvironment(environment);
+        const token = await context.getAccessToken(envConfig, false, environment);
+        
         const requestParams = {
             ...params,
-            integrationInstance: context.defaultConfig.integrationInstance,
+            integrationInstance: envConfig.integrationInstance,
         };
         delete requestParams.id;
         delete requestParams.key;
+        delete requestParams.environment;
 
         return context.fetchSingle(
-            `${context.defaultConfig.apiBaseUrl}/ic/api/integration/v1/monitoring/agentgroups/${id}/agents/${key}`,
+            `${envConfig.apiBaseUrl}/ic/api/integration/v1/monitoring/agentgroups/${id}/agents/${key}`,
             token,
-            requestParams
+            requestParams,
+            true,
+            environment,
+            envConfig
         );
     },
 };

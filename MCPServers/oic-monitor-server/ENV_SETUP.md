@@ -112,3 +112,5 @@ Or use the script:
 - **Not loading**: Restart the server after creating/updating `.env`
 - **Cloud Run**: Environment variables must be set in Cloud Run service configuration
 
+
+

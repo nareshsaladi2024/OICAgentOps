@@ -189,3 +189,5 @@ Write-Host "  2. Restart the server to load new environment variables" -Foregrou
 Write-Host "  3. Test with: monitoringInstances tool with environment=$($environments[0])" -ForegroundColor White
 Write-Host ""
 
+
+

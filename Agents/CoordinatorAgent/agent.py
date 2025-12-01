@@ -66,52 +66,95 @@ except ImportError:
 # --- Tool Definitions ---
 
 def _send_mcp_request(endpoint: str, mcp_message: Dict[str, Any], tool_name: str) -> str:
-    """Helper to send MCP requests and handle shared state."""
+    """
+    Helper to send MCP requests using streamable HTTP transport and handle shared state.
+    
+    Streamable HTTP transport supports bidirectional communication:
+    - POST /stream - Send client-to-server messages (tool calls)
+    - GET /stream - Receive server-to-client messages (responses via SSE stream)
+    
+    For streamable HTTP, we send POST requests and parse JSON responses.
+    """
     try:
+        # Send POST request to streamable HTTP endpoint
         response = requests.post(
             endpoint,
             json=mcp_message,
             headers={
                 "Content-Type": "application/json",
-                "Accept": "text/event-stream, application/json"
+                "Accept": "application/json, text/event-stream"
             },
             stream=True,
             timeout=60
         )
         response.raise_for_status()
         
-        # Parse response
+        # Parse response - streamable HTTP can return JSON directly or SSE stream
         result_json = None
-        content_type = response.headers.get("Content-Type", "")
+        content_type = response.headers.get("Content-Type", "").lower()
         
-        if "text/event-stream" in content_type or "application/json" in content_type:
+        # Try JSON response first (streamable HTTP with enableJsonResponse: true)
+        if "application/json" in content_type:
             try:
                 result_json = response.json()
             except ValueError:
-                # Try parsing SSE
-                text_response = response.text
-                lines = text_response.split('\n')
-                for line in lines:
-                    if line.startswith('data: '):
-                        try:
-                            data = json.loads(line[6:])
-                            if "result" in data:
-                                result_json = data
-                                break
-                        except (json.JSONDecodeError, KeyError):
-                            continue
+                pass
         
+        # If not JSON, try parsing SSE stream (fallback for compatibility)
+        if not result_json:
+            try:
+                # For streamable HTTP, responses might come as SSE stream
+                text_response = response.text
+                
+                # Try direct JSON parse first
+                try:
+                    result_json = json.loads(text_response)
+                except ValueError:
+                    # Parse SSE format (data: {...})
+                    lines = text_response.split('\n')
+                    for line in lines:
+                        line = line.strip()
+                        if line.startswith('data: '):
+                            try:
+                                data = json.loads(line[6:])
+                                # Look for MCP response with result
+                                if "result" in data:
+                                    result_json = data
+                                    break
+                                elif "id" in data and data.get("id") == mcp_message.get("id"):
+                                    result_json = data
+                                    break
+                            except (json.JSONDecodeError, KeyError):
+                                continue
+            except Exception as e:
+                # If all parsing fails, return raw response
+                pass
+        
+        # Extract result from MCP response format
         if result_json:
-            # Handle shared state updates based on tool name
-            _update_shared_state(tool_name, result_json)
-            return json.dumps(result_json, indent=2)
+            # MCP response format: {"jsonrpc": "2.0", "id": "...", "result": {...}}
+            if "result" in result_json:
+                final_result = result_json["result"]
+            else:
+                final_result = result_json
             
-        return json.dumps({"raw": response.text})
+            # Handle shared state updates based on tool name
+            _update_shared_state(tool_name, final_result)
+            return json.dumps(final_result, indent=2)
+        
+        # Fallback: return raw response
+        return json.dumps({"raw": response.text, "content_type": content_type}, indent=2)
         
     except requests.exceptions.ConnectionError:
         error_response = {
             "isError": True,
-            "error": f"Cannot connect to OIC Monitor MCP server at {endpoint.split('/stream')[0]}. Make sure the server is running."
+            "error": f"Cannot connect to OIC Monitor MCP server at {endpoint.split('/stream')[0]}. Make sure the server is running and accessible."
+        }
+        return json.dumps(error_response, indent=2)
+    except requests.exceptions.Timeout:
+        error_response = {
+            "isError": True,
+            "error": f"Request to MCP server timed out. The server may be slow or unresponsive."
         }
         return json.dumps(error_response, indent=2)
     except Exception as e:

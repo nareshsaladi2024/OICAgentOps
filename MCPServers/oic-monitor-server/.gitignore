@@ -1,3 +1,9 @@
 node_modules
 dist
 .env
+
+# Exclude all markdown files except project descriptions and Capstone docs
+*.md
+!PROJECT_DESCRIPTION.md
+!README.md
+!CAPSTONE.md

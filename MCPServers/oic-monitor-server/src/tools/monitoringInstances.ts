@@ -40,7 +40,7 @@ export const monitoringInstancesTool: ToolDefinition = {
         delete requestParams.status;
         delete requestParams.environment;
 
-        return context.fetchWithPagination(`${envConfig.apiBaseUrl}${endpoint}`, token, requestParams);
+        return context.fetchWithPagination(`${envConfig.apiBaseUrl}${endpoint}`, token, requestParams, true, environment, envConfig);
     },
 };
 

@@ -1,4 +1,17 @@
+export const environmentSchema = {
+    environment: {
+        type: "string",
+        description: "OIC environment to query. Required. Enum values: 'dev', 'qa3', 'prod1', 'prod3'",
+        enum: ["dev", "qa3", "prod1", "prod3"]
+    }
+};
+
 export const commonListSchema = {
+    environment: {
+        type: "string",
+        description: "OIC environment to query. Required. Enum values: 'dev', 'qa3', 'prod1', 'prod3'",
+        enum: ["dev", "qa3", "prod1", "prod3"]
+    },
     q: {
         type: "string",
         description: `Filter parameters using OIC query syntax. Supports multiple filters combined with commas.
@@ -37,20 +50,9 @@ Example: {timewindow:'1h', status:'FAILED', code:'ERROR', version:'01.00.0000'}`
         description: "Sort order. Valid values: 'lastupdateddate', 'creationdate', 'executiontime'. Default: 'lastupdateddate'",
         enum: ["lastupdateddate", "creationdate", "executiontime"],
         default: "lastupdateddate"
-    },
-    limit: {
-        type: "number",
-        description: "Maximum number of items to return per page. Use with offset for pagination.",
-        minimum: 1,
-        maximum: 1000,
-        default: 50
-    },
-    offset: {
-        type: "number",
-        description: "Starting point for pagination (0-based index). Use with limit for pagination. Example: offset=3&limit=16 returns items starting at 4th position.",
-        minimum: 0,
-        default: 0
     }
+    // Note: limit and offset are handled internally by the pagination mechanism
+    // All records are automatically retrieved using date-based pagination
 };
 
 export const monitoringInstancesSchema = {
@@ -82,9 +84,10 @@ export const monitoringInstanceDetailsSchema = {
             type: "string",
             description: "The unique identifier (instanceId) of the integration instance. This is the instance ID returned from the instances list endpoint.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringIntegrationsSchema = {
@@ -98,6 +101,7 @@ export const monitoringIntegrationsSchema = {
             default: "all"
         }
     },
+    required: ["environment"]
 };
 
 export const monitoringIntegrationDetailsSchema = {
@@ -107,14 +111,16 @@ export const monitoringIntegrationDetailsSchema = {
             type: "string",
             description: "The unique identifier (integrationId) of the integration. This can be the integration code or integration ID.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringAgentGroupsSchema = {
     type: "object",
     properties: {
+        ...environmentSchema,
         q: {
             type: "string",
             description: "Filter query string to filter results by agent group name. Supports partial matching and search patterns.",
@@ -126,6 +132,7 @@ export const monitoringAgentGroupsSchema = {
             default: "name"
         }
     },
+    required: ["environment"]
 };
 
 export const monitoringAgentGroupDetailsSchema = {
@@ -135,9 +142,10 @@ export const monitoringAgentGroupDetailsSchema = {
             type: "string",
             description: "The unique identifier of the agent group. This is the agent group ID returned from the agent groups list endpoint.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringAgentsInGroupSchema = {
@@ -147,29 +155,34 @@ export const monitoringAgentsInGroupSchema = {
             type: "string",
             description: "The unique identifier of the agent group to retrieve agents for. This is the agent group ID returned from the agent groups list endpoint.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringAuditRecordsSchema = {
     type: "object",
-    properties: commonListSchema
+    properties: commonListSchema,
+    required: ["environment"]
 };
 
 export const monitoringErrorRecoveryJobsSchema = {
     type: "object",
-    properties: commonListSchema
+    properties: commonListSchema,
+    required: ["environment"]
 };
 
 export const monitoringErroredInstancesSchema = {
     type: "object",
-    properties: commonListSchema
+    properties: commonListSchema,
+    required: ["environment"]
 };
 
 export const monitoringScheduledRunsSchema = {
     type: "object",
-    properties: commonListSchema
+    properties: commonListSchema,
+    required: ["environment"]
 };
 
 export const monitoringActivityStreamSchema = {
@@ -179,9 +192,10 @@ export const monitoringActivityStreamSchema = {
             type: "string",
             description: "The unique identifier (instanceId) of the integration instance to retrieve the activity stream for. This is the instance ID returned from the instances list endpoint.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringLogsSchema = {
@@ -191,9 +205,10 @@ export const monitoringLogsSchema = {
             type: "string",
             description: "The unique identifier (instanceId) of the integration instance to retrieve logs for. This is the instance ID returned from the instances list endpoint.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringAbortInstanceSchema = {
@@ -203,9 +218,10 @@ export const monitoringAbortInstanceSchema = {
             type: "string",
             description: "The unique identifier (instanceId) of the integration instance to abort.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringDiscardErroredInstanceSchema = {
@@ -215,16 +231,18 @@ export const monitoringDiscardErroredInstanceSchema = {
             type: "string",
             description: "The unique identifier (instanceId) of the errored integration instance to discard.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringDiscardErroredInstancesSchema = {
     type: "object",
     properties: {
         ...commonListSchema
-    }
+    },
+    required: ["environment"]
 };
 
 export const monitoringResubmitErroredInstanceSchema = {
@@ -234,9 +252,10 @@ export const monitoringResubmitErroredInstanceSchema = {
             type: "string",
             description: "The unique identifier (instanceId) of the errored integration instance to resubmit.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringResubmitErroredInstancesSchema = {
@@ -248,7 +267,8 @@ export const monitoringResubmitErroredInstancesSchema = {
             items: { type: "string" },
             description: "Array of instance IDs to resubmit. If provided, these specific instances will be resubmitted."
         }
-    }
+    },
+    required: ["environment"]
 };
 
 export const monitoringErrorRecoveryJobDetailsSchema = {
@@ -258,9 +278,10 @@ export const monitoringErrorRecoveryJobDetailsSchema = {
             type: "string",
             description: "The unique identifier of the error recovery job.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringErroredInstanceDetailsSchema = {
@@ -270,16 +291,18 @@ export const monitoringErroredInstanceDetailsSchema = {
             type: "string",
             description: "The unique identifier (instanceId) of the errored integration instance.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id"]
+    required: ["id", "environment"]
 };
 
 export const monitoringHistorySchema = {
     type: "object",
     properties: {
         ...commonListSchema
-    }
+    },
+    required: ["environment"]
 };
 
 export const monitoringActivityStreamDetailsSchema = {
@@ -294,16 +317,18 @@ export const monitoringActivityStreamDetailsSchema = {
             type: "string",
             description: "The key of the activity stream detail to retrieve. Required for downloading large payload.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id", "key"]
+    required: ["id", "key", "environment"]
 };
 
 export const monitoringMessageCountSummarySchema = {
     type: "object",
     properties: {
         ...commonListSchema
-    }
+    },
+    required: ["environment"]
 };
 
 export const monitoringAgentDetailsSchema = {
@@ -318,8 +343,9 @@ export const monitoringAgentDetailsSchema = {
             type: "string",
             description: "The unique identifier (key) of the agent within the agent group.",
             minLength: 1
-        }
+        },
+        ...environmentSchema
     },
-    required: ["id", "key"]
+    required: ["id", "key", "environment"]
 };
 

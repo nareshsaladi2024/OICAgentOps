@@ -1,0 +1,35 @@
+# Example: Docker Compose override for remote MCP server
+# 
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.remote.yml up
+#
+# This overrides MCP_SERVER_URL to point to Cloud Run instead of local Docker service
+
+version: '3.8'
+services:
+  # Override MCP_SERVER_URL for all agents to use remote Cloud Run service
+  coordinator-agent:
+    environment:
+      - MCP_SERVER_URL=https://oic-monitor-server-1276251306.us-central1.run.app
+
+  monitor-errors-agent:
+    environment:
+      - MCP_SERVER_URL=https://oic-monitor-server-1276251306.us-central1.run.app
+
+  monitor-queue-agent:
+    environment:
+      - MCP_SERVER_URL=https://oic-monitor-server-1276251306.us-central1.run.app
+
+  recovery-job-agent:
+    environment:
+      - MCP_SERVER_URL=https://oic-monitor-server-1276251306.us-central1.run.app
+
+  resubmit-errors-agent:
+    environment:
+      - MCP_SERVER_URL=https://oic-monitor-server-1276251306.us-central1.run.app
+
+  # Note: mcp-server service is not needed when using remote MCP server
+  # You can comment it out or remove it from docker-compose.yml
+
+
+

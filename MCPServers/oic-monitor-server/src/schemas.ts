@@ -42,8 +42,8 @@ Filter options:
 - projectCode: Project identifier
 - integration-style: 'appdriven' or 'scheduled'
 
-Example: {timewindow:'1h', status:'FAILED', code:'ERROR', version:'01.00.0000'}`,
-        default: "{timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}"
+Example: timewindow:'1h', status:'FAILED', code:'ERROR', version:'01.00.0000'`,
+        default: ""
     },
     orderBy: {
         type: "string",
@@ -93,13 +93,23 @@ export const monitoringInstanceDetailsSchema = {
 export const monitoringIntegrationsSchema = {
     type: "object",
     properties: {
-        ...commonListSchema,
+        environment: {
+            type: "string",
+            description: "OIC environment to query. Required. Enum values: 'dev', 'qa3', 'prod1', 'prod3'",
+            enum: ["dev", "qa3", "prod1", "prod3"]
+        },
+        q: {
+            type: "string",
+            description: "Filter query string. Example: {status:'ACTIVATED'}",
+            default: ""
+        },
         return: {
             type: "string",
             description: "Type of records to return. Controls the response data format. Valid values: 'all' (all records), 'active' (active integrations only), 'inactive' (inactive integrations only).",
             enum: ["all", "active", "inactive"],
             default: "all"
         }
+        // Note: orderBy is NOT supported by this endpoint
     },
     required: ["environment"]
 };
@@ -175,7 +185,19 @@ export const monitoringErrorRecoveryJobsSchema = {
 
 export const monitoringErroredInstancesSchema = {
     type: "object",
-    properties: commonListSchema,
+    properties: {
+        duration: {
+            type: "string",
+            description: "Time window duration for retrieving errored instances. Valid values: '1h', '6h', '1d', '2d', '3d', 'RETENTIONPERIOD'",
+            enum: ["1h", "6h", "1d", "2d", "3d", "RETENTIONPERIOD"],
+            default: "1h"
+        },
+        environment: {
+            type: "string",
+            description: "OIC environment to query. Required. Valid values: 'dev', 'qa3', 'prod1', 'prod3'",
+            enum: ["dev", "qa3", "prod1", "prod3"]
+        }
+    },
     required: ["environment"]
 };
 
@@ -261,14 +283,18 @@ export const monitoringResubmitErroredInstanceSchema = {
 export const monitoringResubmitErroredInstancesSchema = {
     type: "object",
     properties: {
-        ...commonListSchema,
+        environment: {
+            type: "string",
+            description: "OIC environment to query. Required. Valid values: 'dev', 'qa3', 'prod1', 'prod3'",
+            enum: ["dev", "qa3", "prod1", "prod3"]
+        },
         instanceIds: {
             type: "array",
             items: { type: "string" },
-            description: "Array of instance IDs to resubmit. If provided, these specific instances will be resubmitted."
+            description: "Array of instance IDs to resubmit. Required."
         }
     },
-    required: ["environment"]
+    required: ["environment", "instanceIds"]
 };
 
 export const monitoringErrorRecoveryJobDetailsSchema = {

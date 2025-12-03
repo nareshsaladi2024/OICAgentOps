@@ -20,23 +20,15 @@ from pathlib import Path
 # Add parent directory to path to import config if available
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-# Load environment variables
-# Load environment variables from the same directory as this script
-env_path = Path(__file__).parent / '.env'
+# Load environment variables from Capstone root (central location)
+capstone_root = Path(__file__).parent.parent.parent.parent  # Go up to Capstone folder
+env_path = capstone_root / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Ensure GOOGLE_APPLICATION_CREDENTIALS points to the absolute path if it's a relative path or if service_account.json exists locally
-service_account_path = Path(__file__).parent / 'service_account.json'
+# Use service_account.json from Capstone root (central location)
+service_account_path = capstone_root / 'service_account.json'
 if service_account_path.exists():
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(service_account_path.absolute())
-elif "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
-    # If it's set but might be relative, resolve it relative to the .env file location
-    current_creds = Path(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-    if not current_creds.is_absolute():
-        # Try resolving relative to the agent directory
-        resolved_creds = Path(__file__).parent / current_creds
-        if resolved_creds.exists():
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(resolved_creds.absolute())
 
 # Initialize Vertex AI with credentials from environment variables
 vertexai.init(
@@ -64,24 +56,21 @@ except ImportError:
 
 
 def call_mcp_monitoring_instances(
-    q: str = "{timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}",
-    orderBy: str = "lastupdateddate",
-    fields: str = "runId",
-    return_format: str = "summary",
+    environment: str = "qa3",
+    duration: str = "1h",
+    status: str = "IN_PROGRESS",
     mcp_server_url: Optional[str] = None
 ) -> str:
     """
     Call the MCP server's monitoringInstances tool to retrieve integration instances.
     
-    This tool queries the OIC Monitor MCP server to get integration instances that are
-    currently IN_PROGRESS from the past hour. The MCP server handles pagination internally
-    starting with offset=0 and limit=50.
+    This tool queries the OIC Monitor MCP server to get integration instances
+    filtered by duration and status. The MCP server handles pagination internally.
     
     Args:
-        q: Filter query string. Default: {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
-        orderBy: Sort order (default: 'lastupdateddate')
-        fields: Field selection (default: 'runId')
-        return_format: Response format (default: 'summary')
+        environment: OIC environment to query. Valid values: 'dev', 'qa3', 'prod1', 'prod3'. Default: 'qa3'
+        duration: Time window. Valid values: '1h', '6h', '1d', '2d', '3d', 'RETENTIONPERIOD'. Default: '1h'
+        status: Instance status filter. Valid values: 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ABORTED'. Default: 'IN_PROGRESS'
         mcp_server_url: URL of the MCP server (optional, uses MCP_SERVER_URL env var)
     
     Returns:
@@ -103,10 +92,9 @@ def call_mcp_monitoring_instances(
         "params": {
             "name": "monitoringInstances",
             "arguments": {
-                "q": q,
-                "orderBy": orderBy,
-                "fields": fields,
-                "return": return_format
+                "environment": environment,
+                "duration": duration,
+                "status": status
             }
         }
     }
@@ -118,9 +106,9 @@ def call_mcp_monitoring_instances(
             json=mcp_message,
             headers={
                 "Content-Type": "application/json",
-                "Accept": "text/event-stream, application/json"
+                "Accept": "application/json, text/event-stream"
             },
-            stream=True,
+            stream=False,
             timeout=60
         )
         
@@ -235,7 +223,8 @@ def check_mcp_server_health(mcp_server_url: Optional[str] = None) -> Dict[str, A
 
 
 # Get agent model from environment or use default
-AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-2.5-flash-lite")
+# Using gemini-2.0-flash for better function calling support
+AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-2.0-flash")
 
 # Create the AI Agent using Google ADK
 root_agent = Agent(
@@ -247,32 +236,33 @@ root_agent = Agent(
     
     When users ask for any requests pending in queue before processing:
     
-    1. Call the call_mcp_monitoring_instances tool to query for OIC activity stream instances. The MCP server automatically handles pagination internally (starting with offset=0 and limit=50) and returns all matching instances.
+    1. Call the call_mcp_monitoring_instances tool with:
+       - environment: The OIC environment to query (e.g., 'qa3', 'dev', 'prod1', 'prod3')
+       - duration: Time window (default '1h')
+       - status: Instance status (default 'IN_PROGRESS')
     
-    2. Use the following parameters in the request:
-       {timewindow:'1h', status:'IN_PROGRESS', integration-style:'appdriven', includePurged:'yes'}
+    2. The MCP server handles pagination automatically
     
     3. Filter the response to match instances with:
        - status: "IN_PROGRESS"
        - mepType: "ASYNC_ONE_WAY"
        - dataFetchTime - creationDate > 15 minutes (date format: 2025-11-21T04:33:10.496+0000 GMT)
     
-    4. Return details in structured HTML format that is readable:
-       - Total count of matching instances
-       - HTML table with the following columns:
-         * creationDate (converted to MST timezone)
-         * integration name
-         * instanceId
-         * tracking variable (name-value pairs, shortened to 200 characters)
+    4. Return details in a clean, structured text format:
+       - Start with a summary: "**Total matching instances: X**"
+       - For each instance, display as a numbered list with clear labels:
+         
+         **Instance 1:**
+         - Created: [creationDate in MST timezone]
+         - Integration: [integration name]
+         - Instance ID: [instanceId]
+         - Tracking: [name-value pairs, max 200 chars]
+         
+    5. If no instances found, simply state: "No pending requests found in queue for [environment] environment."
     
-    6. Format the HTML table with proper styling for readability (use table tags with headers, borders, and appropriate spacing).
+    If any MCP tool call returns an error, return the exact error message to the user without additional suggestions or alternatives.
     
-    If the OIC Monitor MCP server is not available:
-    1. Use the check_mcp_server_health tool to diagnose the issue
-    2. Provide helpful guidance on how to start the server
-    3. Suggest alternative approaches if possible
-    
-    Always present the results in clear, structured HTML format for easy reading and analysis.
+    Always present results in clear, readable plain text format - NOT HTML tables.
     """,
     tools=[call_mcp_monitoring_instances, check_mcp_server_health]
 )

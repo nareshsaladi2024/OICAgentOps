@@ -22,22 +22,28 @@ export const monitoringResubmitErroredInstanceTool: ToolDefinition = {
         const token = await context.getAccessToken(envConfig, false, environment);
         
         const requestParams = {
-            ...params,
             integrationInstance: envConfig.integrationInstance,
+            return: "monitoringui"  // Request full response with job info
         };
-        delete requestParams.id;
-        delete requestParams.environment;
+
+        console.log(`[ResubmitSingle] Resubmitting instance ${id} in ${environment}`);
 
         const response = await axios.post(
             `${envConfig.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/${id}/resubmit`,
-            null,
+            {},  // Empty JSON body
             {
-                headers: { Authorization: `Bearer ${token}` },
+                headers: { 
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
                 params: requestParams,
             }
         );
 
-        return response.data;
+        console.log(`[ResubmitSingle] Response:`, JSON.stringify(response.data));
+        console.log(`[ResubmitSingle] Headers:`, JSON.stringify(response.headers));
+        
+        return response.data || { status: "submitted", instanceId: id };
     },
 };
 

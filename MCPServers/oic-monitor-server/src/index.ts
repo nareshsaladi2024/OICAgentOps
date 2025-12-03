@@ -18,7 +18,6 @@ class OicMonitorServer {
     private server: Server;
     private tokenManagers: Map<string, TokenManager>;
     private app: express.Application;
-    private streamableServerConnected: boolean = false;
 
     constructor() {
         // Use a map to store token managers per environment
@@ -384,8 +383,6 @@ class OicMonitorServer {
 
     async run() {
         let sseTransport: SSEServerTransport;
-        // Streamable HTTP transport - will be created per-request for better compatibility
-        let streamableHttpTransport: StreamableHTTPServerTransport | null = null;
 
         // Health check endpoint for Cloud Run and Docker
         this.app.get("/health", (req, res) => {
@@ -464,16 +461,16 @@ class OicMonitorServer {
         // ============================================
         // Streamable HTTP Transport (New)
         // ============================================
-        // Create Streamable HTTP transport
-        // Using stateless mode (sessionIdGenerator: undefined) to avoid "Server already initialized" errors
-        // In stateless mode, we create the transport but DON'T connect the server at startup.
-        // Instead, handleRequest will handle the connection per-request.
-        streamableHttpTransport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: undefined, // Stateless mode - no session management
-            enableJsonResponse: true, // Enable JSON responses for MCP Inspector compatibility
+        // Create Streamable HTTP transport in stateless mode (no session required)
+        const streamableHttpTransport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,  // Stateless mode - each request is independent
+            enableJsonResponse: true,
         });
         
-        console.log("[StreamableHTTP] Transport created (stateless mode, will connect per-request).");
+        // Connect server to transport once at startup
+        // The transport will manage multiple sessions internally
+        await this.server.connect(streamableHttpTransport);
+        console.log("[StreamableHTTP] Server connected to transport.");
 
         // Handle all HTTP methods for Streamable HTTP transport
         // GET /stream - Establish SSE stream (for server-to-client messages)
@@ -483,52 +480,18 @@ class OicMonitorServer {
             // Set CORS headers explicitly for MCP Inspector
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
-            res.setHeader('Access-Control-Expose-Headers', 'Content-Type');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, mcp-session-id');
+            res.setHeader('Access-Control-Expose-Headers', 'Content-Type, mcp-session-id');
             
             // Handle OPTIONS preflight
             if (req.method === 'OPTIONS') {
                 res.status(200).end();
                 return;
             }
-            
-            // Ensure transport is initialized
-            if (!streamableHttpTransport) {
-                console.error("[StreamableHTTP] Transport not initialized");
-                res.status(500).json({ error: "Streamable HTTP transport not initialized" });
-                return;
-            }
 
             try {
                 console.log(`[StreamableHTTP] Handling ${req.method} request to /stream`);
-                
-                // In stateless mode, we need to connect the server to the transport per-request
-                // This ensures each request gets a fresh connection without conflicts
-                // Check if server is already connected to avoid "already initialized" errors
-                if (!this.streamableServerConnected) {
-                    try {
-                        await this.server.connect(streamableHttpTransport);
-                        this.streamableServerConnected = true;
-                        console.log("[StreamableHTTP] Server connected to transport for this request.");
-                    } catch (connectError: any) {
-                        // If already connected, that's fine - continue
-                        if (connectError.message?.includes('already') || 
-                            connectError.message?.includes('initialized') ||
-                            connectError.message?.includes('Server already')) {
-                            this.streamableServerConnected = true;
-                            console.log("[StreamableHTTP] Server already connected, continuing.");
-                        } else {
-                            throw connectError;
-                        }
-                    }
-                }
-                
-                // The transport's handleRequest will:
-                // 1. Read the raw request body (if POST)
-                // 2. Parse JSON internally
-                // 3. Route requests to the connected server
                 await streamableHttpTransport.handleRequest(req, res);
-                
                 console.log(`[StreamableHTTP] Request handled successfully`);
             } catch (error: any) {
                 console.error(`[StreamableHTTP] Error handling request:`, error);

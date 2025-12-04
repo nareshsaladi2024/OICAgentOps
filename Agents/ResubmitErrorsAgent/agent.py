@@ -132,22 +132,12 @@ def call_mcp_resubmit_errors(
                         for item in content:
                             if item.get("type") == "text":
                                 text_content = item.get("text", "{}")
-                                # Save job IDs to shared state
+                                # Save recovery job ID to shared state (bulk API response format)
                                 try:
                                     data = json.loads(text_content)
-                                    job_ids = []
-                                    if "jobId" in data:
-                                        job_ids.append(data["jobId"])
-                                    elif "id" in data:
-                                        job_ids.append(data["id"])
-                                    elif "items" in data:
-                                        for job in data["items"]:
-                                            if "jobId" in job:
-                                                job_ids.append(job["jobId"])
-                                            elif "id" in job:
-                                                job_ids.append(job["id"])
+                                    recovery_job_id = data.get("recoveryJobId")
                                     
-                                    if job_ids:
+                                    if recovery_job_id:
                                         shared_state_path = Path(__file__).parent.parent / 'shared_state.json'
                                         state = {}
                                         if shared_state_path.exists():
@@ -156,7 +146,13 @@ def call_mcp_resubmit_errors(
                                                     state = json.load(f)
                                             except:
                                                 pass
-                                        state["last_recovery_job_ids"] = job_ids
+                                        state["last_recovery_job_ids"] = [recovery_job_id]
+                                        state["resubmit_result"] = {
+                                            "acceptedIds": data.get("acceptedIds", []),
+                                            "recoveryJobId": recovery_job_id,
+                                            "resubmitRequested": data.get("resubmitRequested", False),
+                                            "resubmittedInstancesCount": data.get("resubmittedInstancesCount", 0),
+                                        }
                                         state["environment"] = environment
                                         with open(shared_state_path, 'w') as f:
                                             json.dump(state, f, indent=2)
@@ -224,22 +220,31 @@ root_agent = Agent(
     model=AGENT_MODEL,
     description="OIC Resubmit Errors Agent responsible for resubmitting errored integration instances.",
     instruction="""
-    You are an OIC Resubmit Errors Agent responsible for resubmitting errored integration instances.
+    You are an OIC Resubmit Errors Agent responsible for bulk resubmitting errored integration instances.
     
     When users ask to resubmit errored instances:
     
     1. Call call_mcp_resubmit_errors with:
-       - environment: The OIC environment (e.g., 'qa3')
-       - instanceIds: List of instance IDs (or leave empty to use shared state from MonitorErrorsAgent)
+       - environment: The OIC environment ('dev', 'qa3', 'prod1', 'prod3')
+       - instanceIds: List of instance IDs (max 50 per request, or leave empty to use shared state)
     
-    2. Return results in a clean, structured text format:
+    2. The bulk resubmit API returns:
+       - acceptedIds: List of instance IDs that were accepted
+       - recoveryJobId: The recovery job ID for tracking progress
+       - resubmitRequested: Boolean indicating request was accepted
+       - resubmittedInstancesCount: Number of instances resubmitted
+       - resubmittedFailedInstances: List of any failed instances
+    
+    3. Return results in a clean, structured text format:
        
-       **Resubmission Result:**
-       - Instances resubmitted: X
-       - Recovery Job ID(s): [jobId1, jobId2, ...]
-       - Status: Success/Failed
+       **Bulk Resubmission Result:**
+       - Environment: [environment]
+       - Accepted IDs: [count]
+       - Recovery Job ID: [recoveryJobId]
+       - Resubmitted Count: [resubmittedInstancesCount]
+       - Failed Instances: [list or "None"]
        
-    3. If resubmission fails, report the error clearly.
+    4. If resubmission fails, report the error clearly.
     
     If any MCP tool call returns an error, return the exact error message to the user.
     

@@ -217,15 +217,18 @@ def resubmit_errors(
     
     result = _send_mcp_request(stream_endpoint, mcp_message)
     
-    # Save resubmit results to shared state
+    # Save resubmit results to shared state (bulk API response format)
     if not result.get("isError"):
+        recovery_job_id = result.get("recoveryJobId")
         update_shared_state({
             "resubmit_result": {
-                "totalRequested": result.get("totalRequested", 0),
-                "successCount": result.get("successCount", 0),
-                "failedCount": result.get("failedCount", 0),
-                "successInstanceIds": result.get("successInstanceIds", []),
+                "acceptedIds": result.get("acceptedIds", []),
+                "recoveryJobId": recovery_job_id,
+                "resubmitRequested": result.get("resubmitRequested", False),
+                "resubmittedInstancesCount": result.get("resubmittedInstancesCount", 0),
+                "resubmittedFailedInstances": result.get("resubmittedFailedInstances", []),
             },
+            "last_recovery_job_ids": [recovery_job_id] if recovery_job_id else [],
             "environment": environment
         })
     
@@ -333,39 +336,47 @@ root_agent = Agent(
     
     **Available Tools:**
     1. monitor_errors - Find errored instances (saves instance IDs to shared state)
-    2. resubmit_errors - Resubmit errors for recovery (uses instance IDs from state, saves job IDs)
+    2. resubmit_errors - Bulk resubmit errors (max 50 IDs per call, uses IDs from state, saves recovery job ID)
     3. get_recovery_job_status - Check recovery job status (uses job ID from state)
     4. check_mcp_server_health - Verify MCP server is running
     
     **Workflow for "find errors and resubmit":**
     
     1. Call monitor_errors with environment and duration
-       - Returns list of errored instances
+       - Returns list of errored instances with their flow IDs
        - Automatically saves instance IDs to shared state
        
     2. If errors found, call resubmit_errors with environment
-       - Uses instance IDs from shared state automatically
-       - Returns recovery job information
-       - Saves job IDs to shared state
+       - Uses instance IDs from shared state automatically (max 50 per request)
+       - Returns bulk resubmit response with recoveryJobId
+       - Saves recovery job ID to shared state
        
     3. Call get_recovery_job_status to check the recovery job
        - Uses job ID from shared state automatically
        - Returns job status and details
     
+    **Bulk Resubmit Response Format:**
+    - acceptedIds: List of accepted instance IDs
+    - recoveryJobId: The recovery job ID for tracking
+    - resubmitRequested: Boolean indicating request was accepted
+    - resubmittedInstancesCount: Number of instances resubmitted
+    - resubmittedFailedInstances: List of any failed instances
+    
     **Output Format (plain text, NOT HTML):**
     
     **Step 1: Monitor Errors**
-    - Environment: [qa3]
-    - Time Window: [1h]
+    - Environment: [qa3/dev/prod1/prod3]
+    - Time Window: [1h/6h/1d/2d/3d]
     - Errors Found: [count]
     - Instance IDs: [id1, id2, ...]
     
-    **Step 2: Resubmit Errors**
-    - Instances Submitted: [count]
-    - Recovery Job ID: [jobId]
+    **Step 2: Resubmit Errors (Bulk)**
+    - Accepted IDs: [count]
+    - Recovery Job ID: [recoveryJobId]
+    - Resubmitted Count: [count]
     
     **Step 3: Recovery Job Status**
-    - Job ID: [jobId]
+    - Job ID: [recoveryJobId]
     - Status: [COMPLETED/IN_PROGRESS/FAILED]
     - Success Count: [X]
     - Failed Count: [Y]

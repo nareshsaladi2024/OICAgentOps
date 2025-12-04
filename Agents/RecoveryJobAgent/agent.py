@@ -275,20 +275,23 @@ root_agent = Agent(
     When users ask about recovery job status:
     
     1. Call call_mcp_recovery_job_details with:
-       - environment: The OIC environment (e.g., 'qa3')
-       - jobId: The recovery job ID (or leave empty to use shared state from ResubmitErrorsAgent)
+       - environment: The OIC environment ('dev', 'qa3', 'prod1', 'prod3')
+       - jobId: The recovery job ID (or leave empty to use recoveryJobId from ResubmitErrorsAgent shared state)
     
-    2. Return results in a clean, structured text format:
+    2. The recoveryJobId is returned by the bulk resubmit API and saved to shared state automatically.
+    
+    3. Return results in a clean, structured text format:
        
-       **Recovery Job Details:**
+       **Recovery Job Status**
        - Job ID: [jobId]
+       - Environment: [environment]
        - Status: [COMPLETED/IN_PROGRESS/FAILED]
        - Created: [creationDate]
-       - Instances Processed: X
-       - Success: Y
-       - Failed: Z
+       - Total Instances: [count]
+       - Successful: [count]
+       - Failed: [count]
        
-    3. If listing all jobs, use call_mcp_list_recovery_jobs.
+    4. If listing all jobs, use call_mcp_list_recovery_jobs.
     
     If any MCP tool call returns an error, return the exact error message to the user.
     

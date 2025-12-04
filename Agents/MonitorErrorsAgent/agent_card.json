@@ -1,0 +1,47 @@
+{
+  "name": "MonitorErrorsAgent",
+  "description": "OIC Monitoring Error Agent responsible for retrieving errored integration instances from Oracle Integration Cloud.",
+  "version": "1.0.0",
+  "protocolVersion": "0.2.1",
+  "url": "http://localhost:10002/a2a",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "monitor_errored_instances",
+      "name": "Monitor Errored Instances",
+      "description": "Retrieve errored integration instances from OIC with filtering by environment and time window",
+      "tags": ["oic", "monitoring", "errors", "integration"],
+      "examples": [
+        "Find errors in QA3 for last 1 hour",
+        "Get all errored instances in production",
+        "Monitor errors in dev environment"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string",
+            "enum": ["dev", "qa3", "prod1", "prod3"],
+            "description": "OIC environment to query"
+          },
+          "duration": {
+            "type": "string",
+            "enum": ["1h", "6h", "1d", "2d", "3d", "RETENTIONPERIOD"],
+            "description": "Time window for error search"
+          }
+        }
+      }
+    }
+  ],
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "provider": {
+    "organization": "OIC AgentOps",
+    "url": "https://github.com/OICAgentOps"
+  }
+}
+

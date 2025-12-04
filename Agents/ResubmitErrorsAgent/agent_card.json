@@ -1,0 +1,57 @@
+{
+  "name": "ResubmitErrorsAgent",
+  "description": "OIC Resubmit Errors Agent responsible for bulk resubmitting errored integration instances for recovery.",
+  "version": "1.0.0",
+  "protocolVersion": "0.2.1",
+  "url": "http://localhost:10004/a2a",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "resubmit_errors",
+      "name": "Resubmit Errored Instances",
+      "description": "Bulk resubmit errored integration instances (max 50 per request). Returns recovery job IDs for tracking.",
+      "tags": ["oic", "resubmit", "recovery", "errors"],
+      "examples": [
+        "Resubmit errors in QA3",
+        "Resubmit specific instance IDs",
+        "Bulk resubmit all pending errors"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string",
+            "enum": ["dev", "qa3", "prod1", "prod3"],
+            "description": "OIC environment for resubmission"
+          },
+          "instanceIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 50,
+            "description": "List of instance IDs to resubmit"
+          }
+        },
+        "required": ["environment"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "acceptedIds": { "type": "array", "items": { "type": "string" } },
+          "recoveryJobId": { "type": "string" },
+          "resubmittedInstancesCount": { "type": "integer" }
+        }
+      }
+    }
+  ],
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "provider": {
+    "organization": "OIC AgentOps",
+    "url": "https://github.com/OICAgentOps"
+  }
+}
+

@@ -1,0 +1,51 @@
+{
+  "name": "CoordinatorAgent",
+  "description": "Coordinator Agent for OIC Error Monitoring and Recovery Workflow. Orchestrates error monitoring, resubmission, and recovery job tracking across OIC environments.",
+  "version": "1.0.0",
+  "protocolVersion": "0.2.1",
+  "url": "http://localhost:10001/a2a",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "monitor_errors",
+      "name": "Monitor Errors",
+      "description": "Find errored integration instances in OIC environments (dev, qa3, prod1, prod3)",
+      "tags": ["oic", "monitoring", "errors"],
+      "examples": [
+        "Find errors in QA3 environment",
+        "Monitor last 1 hour errors in production"
+      ]
+    },
+    {
+      "id": "resubmit_errors",
+      "name": "Resubmit Errors",
+      "description": "Bulk resubmit errored instances for recovery (max 50 per request)",
+      "tags": ["oic", "resubmit", "recovery"],
+      "examples": [
+        "Resubmit errors in QA3",
+        "Resubmit all pending errors"
+      ]
+    },
+    {
+      "id": "recovery_job_status",
+      "name": "Recovery Job Status",
+      "description": "Check the status of recovery jobs",
+      "tags": ["oic", "recovery", "status"],
+      "examples": [
+        "Check recovery job status",
+        "Get status of job ID xyz"
+      ]
+    }
+  ],
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "provider": {
+    "organization": "OIC AgentOps",
+    "url": "https://github.com/OICAgentOps"
+  }
+}
+

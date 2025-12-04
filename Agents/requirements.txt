@@ -1,4 +1,16 @@
-google-adk>=0.1.0
+# Google ADK with A2A support
+google-adk>=1.0.0
+
+# A2A Protocol SDK
+a2a-sdk>=0.2.0
+
+# HTTP/API dependencies
 requests>=2.31.0
+uvicorn>=0.27.0
+fastapi>=0.109.0
+
+# MCP Protocol
 mcp>=0.1.0
 
+# Utilities
+python-dotenv>=1.0.0

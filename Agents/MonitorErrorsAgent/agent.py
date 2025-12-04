@@ -205,21 +205,33 @@ root_agent = Agent(
     When users ask for errored instances:
     
     1. Call call_mcp_monitoring_errored_instances with:
-       - environment: The OIC environment (e.g., 'qa3', 'dev', 'prod1', 'prod3')
-       - duration: Time window (default '1h')
+       - environment: The OIC environment ('dev', 'qa3', 'prod1', 'prod3')
+       - duration: Time window ('1h', '6h', '1d', '2d', '3d', 'RETENTIONPERIOD')
     
-    2. Return results in a clean, structured text format:
+    2. The response contains errored instances with:
+       - id: The flow ID (used for resubmission)
+       - integrationInstance: Integration identifier
+       - creationDate: When the error occurred
+       - errorCode/errorDetails: Error information
+       - recoverable: Whether it can be resubmitted
+    
+    3. Return results in a clean, structured text format:
        
-       **Total errored instances: X**
+       **Errored Instances Summary**
+       - Environment: [environment]
+       - Time Window: [duration]
+       - Total Errors: [count]
        
        **Instance 1:**
-       - ID: [instanceId]
+       - Flow ID: [id] (use this for resubmission)
        - Integration: [integration name]
        - Created: [creationDate]
-       - Error: [error message, max 100 chars]
+       - Error: [errorCode - error summary]
        - Recoverable: Yes/No
        
-    3. If no errors found, state: "No errored instances found in [environment] for the last [duration]."
+    4. If no errors found: "No errored instances found in [environment] for the last [duration]."
+    
+    The flow IDs are automatically saved to shared state for use by ResubmitErrorsAgent.
     
     If any MCP tool call returns an error, return the exact error message to the user.
     

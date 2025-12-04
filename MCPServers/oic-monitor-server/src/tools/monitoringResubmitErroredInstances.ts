@@ -27,68 +27,33 @@ export const monitoringResubmitErroredInstancesTool: ToolDefinition = {
             throw new Error(`Maximum 50 instanceIds allowed per request. Received: ${instanceIds.length}`);
         }
 
+        // Query params: return=monitoringui and integrationInstance
         const requestParams = {
             integrationInstance: envConfig.integrationInstance,
             return: "monitoringui"
         };
 
-        console.log(`[Resubmit] Bulk resubmitting ${instanceIds.length} instances in ${environment}`);
-
-        const results = {
-            totalRequested: instanceIds.length,
-            successCount: 0,
-            failedCount: 0,
-            recoveryJobIds: [] as string[],
-            details: [] as any[]
+        // Request body: {"ids": ["id1", "id2", ...]}
+        const requestBody = {
+            ids: instanceIds
         };
 
-        for (const instanceId of instanceIds) {
-            try {
-                const response = await axios.post(
-                    `${envConfig.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/${instanceId}/resubmit`,
-                    {},
-                    {
-                        headers: { 
-                            Authorization: `Bearer ${token}`,
-                            'Content-Type': 'application/json'
-                        },
-                        params: requestParams,
-                    }
-                );
+        console.log(`[Resubmit] Bulk resubmitting ${instanceIds.length} instances in ${environment}`);
+        console.log(`[Resubmit] Request body: ${JSON.stringify(requestBody)}`);
 
-                const recoveryJobId = response.data?.recoveryJobId || null;
-                const resubmitSuccessful = response.data?.resubmitSuccessful || false;
-
-                if (resubmitSuccessful) {
-                    results.successCount++;
-                    if (recoveryJobId) {
-                        results.recoveryJobIds.push(recoveryJobId);
-                    }
-                } else {
-                    results.failedCount++;
-                }
-
-                results.details.push({
-                    instanceId,
-                    recoveryJobId,
-                    resubmitSuccessful
-                });
-
-                console.log(`[Resubmit] ${instanceId} -> recoveryJobId: ${recoveryJobId}`);
-            } catch (error: any) {
-                const errorMsg = error.response?.data?.message || error.response?.data?.title || error.message || 'Unknown error';
-                results.failedCount++;
-                results.details.push({
-                    instanceId,
-                    recoveryJobId: null,
-                    resubmitSuccessful: false,
-                    error: errorMsg
-                });
-                console.log(`[Resubmit] Failed ${instanceId}: ${errorMsg}`);
+        const response = await axios.post(
+            `${envConfig.apiBaseUrl}/ic/api/integration/v1/monitoring/errors/resubmit`,
+            requestBody,
+            {
+                headers: { 
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                params: requestParams,
             }
-        }
+        );
 
-        console.log(`[Resubmit] Completed: ${results.successCount}/${results.totalRequested} successful`);
-        return results;
+        console.log(`[Resubmit] Response: ${JSON.stringify(response.data)}`);
+        return response.data;
     },
 };

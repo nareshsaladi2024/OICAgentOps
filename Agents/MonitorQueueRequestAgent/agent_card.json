@@ -1,0 +1,52 @@
+{
+  "name": "MonitorQueueRequestAgent",
+  "description": "OIC Monitor Queue Requests Agent that returns pending request count in queue along with details from Oracle Integration Cloud.",
+  "version": "1.0.0",
+  "protocolVersion": "0.2.1",
+  "url": "http://localhost:10003/a2a",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "monitor_queue_requests",
+      "name": "Monitor Queue Requests",
+      "description": "Check pending requests in OIC queue before processing with filtering by environment, duration, and status",
+      "tags": ["oic", "monitoring", "queue", "integration"],
+      "examples": [
+        "Check queue requests in QA3",
+        "Get pending requests in production",
+        "Monitor in-progress instances"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string",
+            "enum": ["dev", "qa3", "prod1", "prod3"],
+            "description": "OIC environment to query"
+          },
+          "duration": {
+            "type": "string",
+            "enum": ["1h", "6h", "1d", "2d", "3d", "RETENTIONPERIOD"],
+            "description": "Time window for queue search"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["IN_PROGRESS", "COMPLETED", "FAILED", "ABORTED"],
+            "description": "Instance status filter"
+          }
+        }
+      }
+    }
+  ],
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "provider": {
+    "organization": "OIC AgentOps",
+    "url": "https://github.com/OICAgentOps"
+  }
+}
+

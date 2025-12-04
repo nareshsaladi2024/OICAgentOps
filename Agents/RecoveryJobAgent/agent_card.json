@@ -1,0 +1,56 @@
+{
+  "name": "RecoveryJobAgent",
+  "description": "OIC Recovery Job Agent responsible for checking the status of error recovery jobs in Oracle Integration Cloud.",
+  "version": "1.0.0",
+  "protocolVersion": "0.2.1",
+  "url": "http://localhost:10005/a2a",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "get_recovery_job_status",
+      "name": "Get Recovery Job Status",
+      "description": "Check the status of a recovery job by job ID",
+      "tags": ["oic", "recovery", "job", "status"],
+      "examples": [
+        "Check recovery job status",
+        "Get status of job ID xyz",
+        "Monitor recovery progress"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string",
+            "enum": ["dev", "qa3", "prod1", "prod3"],
+            "description": "OIC environment"
+          },
+          "jobId": {
+            "type": "string",
+            "description": "Recovery job ID to check"
+          }
+        }
+      }
+    },
+    {
+      "id": "list_recovery_jobs",
+      "name": "List Recovery Jobs",
+      "description": "List all recovery jobs in an environment",
+      "tags": ["oic", "recovery", "jobs", "list"],
+      "examples": [
+        "List all recovery jobs in QA3",
+        "Show recovery jobs in production"
+      ]
+    }
+  ],
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "provider": {
+    "organization": "OIC AgentOps",
+    "url": "https://github.com/OICAgentOps"
+  }
+}
+
